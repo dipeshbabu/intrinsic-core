@@ -14,13 +14,12 @@
 
 from absl.testing import absltest
 from absl.testing import parameterized
-import numpy as np
-
 from intrinsic.math.python import math_test
 from intrinsic.math.python import pose3
 from intrinsic.math.python import quaternion
 from intrinsic.math.python import rotation3
 from intrinsic.math.python import vector_util
+import numpy as np
 
 _TEST_NAMED_QUATERNIONS = math_test.make_named_unit_quaternions()
 _TEST_NAMED_VECTORS = math_test.make_named_vectors()
@@ -189,6 +188,18 @@ class Pose3Test(parameterized.TestCase, math_test.TestCase):
   def test_from_matrix4x4_identity(self):
     self.assert_pose_close(
         pose3.Pose3.from_matrix4x4(np.identity(4)), pose3.Pose3.identity()
+    )
+
+  def test_from_matrix4x4_rejects_reflection(self):
+    matrix = np.diag([-1.0, 1.0, 1.0, 1.0])
+    matrix[:3, 3] = [1, 2, 3]
+
+    self.assertRaisesRegex(
+        ValueError,
+        'reflection input',
+        pose3.Pose3.from_matrix4x4,
+        matrix,
+        err_msg='reflection input',
     )
 
   def test_from_matrix4x4_errors(self):

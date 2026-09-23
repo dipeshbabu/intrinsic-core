@@ -18,13 +18,12 @@ import math
 from absl import logging
 from absl.testing import absltest
 from absl.testing import parameterized
-import numpy as np
-
 from intrinsic.math.python import math_test
 from intrinsic.math.python import math_types
 from intrinsic.math.python import quaternion
 from intrinsic.math.python import rotation3
 from intrinsic.math.python import vector_util
+import numpy as np
 
 _ARCTAN_HALF = 2 * math.degrees(math.atan(0.5))  # 26.5650512
 
@@ -413,6 +412,28 @@ class Rotation3Test(parameterized.TestCase, math_test.TestCase):
     )
     self.assert_rotation_close(rotation, rotation_from_matrix)
 
+  @parameterized.named_parameters(
+      ('reflected_x', np.diag([-1.0, 1.0, 1.0])),
+      ('inversion', -np.identity(3)),
+      ('swapped_axes', np.array([[0, 1, 0], [1, 0, 0], [0, 0, 1]])),
+  )
+  def test_from_matrix_rejects_reflections(self, reflection):
+    for dimension in (3, 4):
+      matrix = np.identity(dimension)
+      matrix[:3, :3] = reflection
+      for validate in (
+          rotation3.check_rotation_matrix,
+          rotation3.Rotation3.from_matrix,
+      ):
+        with self.subTest(dimension=dimension, validate=validate):
+          self.assertRaisesRegex(
+              ValueError,
+              'reflection input',
+              validate,
+              matrix,
+              err_msg='reflection input',
+          )
+
   def test_from_matrix_identity(self):
     rotation3.check_rotation_matrix(np.identity(3))
     self.assertEqual(
@@ -426,11 +447,13 @@ class Rotation3Test(parameterized.TestCase, math_test.TestCase):
         rotation3.Rotation3.identity(),
     )
 
-  @parameterized.parameters([
-      (np.identity(3) * 2.0,),
-      (np.ones((3, 3)),),
-      (np.ones((4, 4)),),
-  ])
+  @parameterized.parameters(
+      [
+          (np.identity(3) * 2.0,),
+          (np.ones((3, 3)),),
+          (np.ones((4, 4)),),
+      ]
+  )
   def test_from_matrix_not_orthogonal(self, not_orthogonal_matrix):
     self.assertRaisesRegex(
         ValueError,
@@ -445,13 +468,15 @@ class Rotation3Test(parameterized.TestCase, math_test.TestCase):
         not_orthogonal_matrix,
     )
 
-  @parameterized.parameters([
-      (np.zeros((1, 2, 3)),),
-      (np.zeros(7),),
-      (np.identity(2),),
-      (np.zeros((2, 4)),),
-      (np.zeros((3, 1)),),
-  ])
+  @parameterized.parameters(
+      [
+          (np.zeros((1, 2, 3)),),
+          (np.zeros(7),),
+          (np.identity(2),),
+          (np.zeros((2, 4)),),
+          (np.zeros((3, 1)),),
+      ]
+  )
   def test_from_matrix_wrong_shape(self, wrong_shape_matrix):
     wrong_shape_matrix = np.asarray(wrong_shape_matrix)
     self.assertRaisesRegex(

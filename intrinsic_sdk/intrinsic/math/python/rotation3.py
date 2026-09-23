@@ -20,15 +20,12 @@ A rotation is represented internally as a normalized quaternion.
 """
 
 import math
-from typing import Optional
-from typing import Text
-from typing import Tuple
-
-import numpy as np
+from typing import Optional, Text, Tuple
 
 from intrinsic.math.python import math_types
 from intrinsic.math.python import quaternion as quaternion_class
 from intrinsic.math.python import vector_util
+import numpy as np
 
 # ----------------------------------------------------------------------------
 # Error messages for exceptions.
@@ -39,6 +36,9 @@ INVALID_ROTATION_QUATERNION_MESSAGE = (
     'A quaternion representing a rotation should have magnitude 1.'
 )
 MATRIX_NOT_ORTHOGONAL_MESSAGE = 'Rotation matrix should be orthogonal'
+MATRIX_NON_POSITIVE_DETERMINANT_MESSAGE = (
+    'Rotation matrix should have positive determinant'
+)
 MATRIX_WRONG_SHAPE_MESSAGE = 'Matrix should be 3x3 or 4x4'
 
 # ----------------------------------------------------------------------------
@@ -59,19 +59,20 @@ def check_rotation_matrix(
 
   Raises a ValueError if the upper 3x3 submatrix of the matrix is not a valid
   rotation matrix.  The matrix must have two dimensions and contain a 3x3
-  submatrix.  The 3x3 submatrix must be orthogonal.
+  submatrix.  The 3x3 submatrix must be orthogonal and have positive determinant.
 
   This function does not check any values outside of the 3x3 submatrix.
 
   Args:
-    matrix: A 3x3 or 4x4 matrix whose upper 3x3 corner should be orthogonal.
+    matrix: A 3x3 or 4x4 matrix whose upper 3x3 corner should be orthogonal with
+      positive determinant.
     rtol: relative error tolerance, passed through to np.allclose.
     atol: absolute error tolerance, passed through to np.allclose.
     err_msg: Error message string added to exception in case of invalid input.
 
   Raises:
-    ValueError: If the matrix has the wrong shape or does not have an orthogonal
-    upper 3x3 submatrix.
+    ValueError: If the matrix has the wrong shape or its upper 3x3 submatrix is
+      not orthogonal with positive determinant.
   """
   if len(matrix.shape) != 2 or matrix.shape[0] < 3 or matrix.shape[1] < 3:
     raise ValueError(
@@ -86,6 +87,17 @@ def check_rotation_matrix(
     raise ValueError(
         "%s: shape=%s\n%s\nr * r' = %s\n%s"
         % (MATRIX_NOT_ORTHOGONAL_MESSAGE, matrix.shape, matrix, eye, err_msg)
+    )
+  determinant = np.linalg.det(matrix3x3)
+  if determinant <= 0:
+    raise ValueError(
+        '%s: determinant=%s\n%s\n%s'
+        % (
+            MATRIX_NON_POSITIVE_DETERMINANT_MESSAGE,
+            determinant,
+            matrix,
+            err_msg,
+        )
     )
 
 
@@ -317,23 +329,25 @@ class Rotation3(object):
         xyzw=self._quaternion.xyzw / np.linalg.norm(self._quaternion.xyzw)
     )
     # There are two equivalent conversions for quaternion <==> rotation matrix.
-    return 2 * np.array([
+    return 2 * np.array(
         [
-            q.x * q.x + q.w * q.w,
-            q.x * q.y - q.z * q.w,
-            q.x * q.z + q.y * q.w,
-        ],
-        [
-            q.x * q.y + q.z * q.w,
-            q.y * q.y + q.w * q.w,
-            q.y * q.z - q.x * q.w,
-        ],
-        [
-            q.x * q.z - q.y * q.w,
-            q.y * q.z + q.x * q.w,
-            q.z * q.z + q.w * q.w,
-        ],
-    ]) - np.identity(3)
+            [
+                q.x * q.x + q.w * q.w,
+                q.x * q.y - q.z * q.w,
+                q.x * q.z + q.y * q.w,
+            ],
+            [
+                q.x * q.y + q.z * q.w,
+                q.y * q.y + q.w * q.w,
+                q.y * q.z - q.x * q.w,
+            ],
+            [
+                q.x * q.z - q.y * q.w,
+                q.y * q.z + q.x * q.w,
+                q.z * q.z + q.w * q.w,
+            ],
+        ]
+    ) - np.identity(3)
 
   def euler_angles(self, radians: bool = False) -> np.ndarray:
     """Returns the roll-pitch-yaw Euler angle representation of the rotation.
