@@ -17,6 +17,7 @@
 
 #include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/tf/errorMark.h>
+#include <pxr/usd/usd/attribute.h>
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usd/relationship.h>
 #include <pxr/usd/usd/stage.h>
@@ -112,10 +113,11 @@ absl::StatusOr<eigenmath::Matrix4d> GetRelativeTransform(
 
 // Get the relative transformation of matrix A in matrix B's frame.
 // Aka the matrix that transforms a vector in A's space to a vector in B's
-// space.
+// space. Returns an error if `mat_b` is singular and therefore cannot be
+// inverted.
 // See docs: https://openusd.org/dev/api/class_gf_matrix4d.html
-pxr::GfMatrix4d GetRelativeTransform(const pxr::GfMatrix4d& mat_a,
-                                     const pxr::GfMatrix4d& mat_b);
+absl::StatusOr<pxr::GfMatrix4d> GetRelativeTransform(
+    const pxr::GfMatrix4d& mat_a, const pxr::GfMatrix4d& mat_b);
 
 // Returns `pose` but with the translation converted to meters, using the
 // given conversion.
@@ -153,6 +155,22 @@ bool InheritsAPI(const pxr::UsdPrim& prim) {
     }
   }
   return false;
+}
+
+// Reads a scalar attribute that may be authored with single or double
+// precision. USD schemas declare dimensions such as `radius` as double, but
+// exporters frequently author them as float.
+absl::StatusOr<double> GetDoubleOrFloat(const pxr::UsdAttribute& attr);
+
+// Reads `attr` into `value`, leaving `value` untouched if the attribute is
+// invalid or holds no value of type `T`. USD properties are optional, so
+// callers pre-populate `value` with the default to fall back to.
+template <typename T>
+void ReadAttributeOrKeepDefault(const pxr::UsdAttribute& attr, T& value) {
+  T attr_value;
+  if (attr.IsValid() && attr.Get<T>(&attr_value)) {
+    value = attr_value;
+  }
 }
 
 // Returns true if the given UsdPrim is marked as "invisible", meaning that

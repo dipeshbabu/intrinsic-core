@@ -419,6 +419,10 @@ absl::Status SimulationRuntime::ResetSimulation(
       simulator_world_manager_->StopUpdatesAndResetWorld(
           context, start_world,
           /*ignore_disabled_object_deletion_error=*/false);
+  if (!return_status.ok()) {
+    LOG(ERROR) << "Failed to stop updates and reset the sim world: "
+               << return_status;
+  }
 
   if (return_status.ok() && has_simulator) {
     constexpr int kNumResetRetries = 3;

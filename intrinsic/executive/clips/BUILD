@@ -55,6 +55,7 @@ cc_library(
         "@abseil-cpp//absl/synchronization",
         "@abseil-cpp//absl/time",
         "@abseil-cpp//absl/types:span",
+        "@com_google_googleapis//google/rpc:status_cc_proto",
         "@com_google_protobuf//:protobuf",
         "@intrinsic_apis//intrinsic/executive/proto:run_response_cc_proto",
         "@intrinsic_apis//intrinsic/executive/proto:world_query_cc_proto",

@@ -34,6 +34,7 @@
 #include "grpcpp/channel.h"
 #include "grpcpp/client_context.h"
 #include "grpcpp/security/server_credentials.h"
+#include "grpcpp/support/channel_arguments.h"
 #include "intrinsic/connect/cc/grpc/channel.h"
 #include "intrinsic/icon/cc_client/client.h"
 #include "intrinsic/platform/pubsub/pubsub.h"
@@ -59,6 +60,33 @@ namespace intrinsic {
 namespace simulation {
 namespace {
 
+// Retry policy so that rpcs are robust to transient errors (e.g., during pod
+// restarts).
+constexpr char kWorldServiceRetryPolicy[] = R"(
+        {
+          "methodConfig": [{
+            "name": [
+              {"service": "intrinsic_proto.world.ObjectWorldService"},
+              {"service": "intrinsic_proto.world.WorldUpdater"}
+            ],
+            "waitForReady": true,
+            "timeout": "300s",
+            "retryPolicy": {
+                "maxAttempts": 5,
+                "initialBackoff": "1s",
+                "maxBackoff": "10s",
+                "backoffMultiplier": 1.5,
+                "retryableStatusCodes": ["UNAVAILABLE"]
+            }
+          }]
+        })";
+
+::grpc::ChannelArguments WorldServiceChannelArgs() {
+  ::grpc::ChannelArguments channel_args = connect::DefaultGrpcChannelArgs();
+  channel_args.SetServiceConfigJSON(kWorldServiceRetryPolicy);
+  return channel_args;
+}
+
 absl::StatusOr<
     std::shared_ptr<intrinsic_proto::world::ObjectWorldService::Stub>>
 CreateObjectWorldServiceStub(const std::string& world_service_address,
@@ -66,7 +94,8 @@ CreateObjectWorldServiceStub(const std::string& world_service_address,
   INTR_ASSIGN_OR_RETURN(
       const std::shared_ptr<grpc::Channel> channel,
       connect::CreateClientChannel(world_service_address,
-                                   absl::Now() + grpc_connect_timeout));
+                                   absl::Now() + grpc_connect_timeout,
+                                   WorldServiceChannelArgs()));
   return intrinsic_proto::world::ObjectWorldService::NewStub(channel);
 }
 
@@ -76,7 +105,8 @@ CreateWorldUpdaterServiceStub(const std::string& world_service_address,
   INTR_ASSIGN_OR_RETURN(
       const std::shared_ptr<grpc::Channel> channel,
       connect::CreateClientChannel(world_service_address,
-                                   absl::Now() + grpc_connect_timeout));
+                                   absl::Now() + grpc_connect_timeout,
+                                   WorldServiceChannelArgs()));
   return intrinsic_proto::world::WorldUpdater::NewStub(channel);
 }
 

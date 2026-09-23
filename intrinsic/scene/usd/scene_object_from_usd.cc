@@ -27,10 +27,13 @@
 #include <pxr/usd/usdPhysics/rigidBodyAPI.h>
 
 #include <filesystem>
-#include <fstream>
+#include <string>
 
+#include "absl/cleanup/cleanup.h"
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/substitute.h"
 #include "intrinsic/geometry/storage/geometry_serializer.h"
@@ -40,8 +43,11 @@
 #include "intrinsic/scene/usd/connection_graph.h"
 #include "intrinsic/scene/usd/entity_from_usd.h"
 #include "intrinsic/scene/usd/utils.h"
+#include "intrinsic/util/file_helpers.h"
 #include "intrinsic/util/status/ret_check.h"
 #include "intrinsic/util/status/status_macros.h"
+#include "ortools/base/helpers.h"
+#include "ortools/base/options.h"
 #include "ortools/base/temp_path.h"
 
 namespace fs = std::filesystem;
@@ -258,16 +264,21 @@ SceneObjectFromUsdFileData(absl::string_view file_name,
   // stage. When writing to a temp-file, preserve the filename + suffix. USD
   // uses the suffix to detect what type of USD file it is.
   TempPath temp_dir("/tmp/");
-  std::string temp_file =
+  // `TempPath` creates the directory but does not remove it on destruction, so
+  // the cleanup is done here.
+  absl::Cleanup temp_dir_cleanup = [&temp_dir]() {
+    if (absl::Status status = RecursivelyDelete(temp_dir.path());
+        !status.ok()) {
+      LOG(WARNING) << "Failed to delete the temporary directory "
+                   << temp_dir.path() << ": " << status;
+    }
+  };
+  const std::string temp_file =
       fs::path(temp_dir.path()) / fs::path(file_name).filename();
-  std::ofstream file_stream(temp_file);
-  if (file_stream) {
-    file_stream << file_contents;
-    file_stream.close();
-  } else {
-    return absl::InternalError(
-        absl::Substitute("Failed to write to a temporary file $0", file_name));
-  }
+  INTR_RETURN_IF_ERROR(
+      file::SetContents(temp_file, file_contents, file::Defaults()))
+      << "Failed to write the contents of " << file_name << " to " << temp_file;
+
   return SceneObjectFromUsdFile(temp_file, geometry_serializer);
 }
 

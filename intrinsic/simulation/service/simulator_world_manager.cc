@@ -22,6 +22,7 @@
 
 #include "absl/base/nullability.h"
 #include "absl/cleanup/cleanup.h"
+#include "absl/functional/function_ref.h"
 #include "absl/log/log.h"
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
@@ -32,6 +33,8 @@
 #include "absl/types/span.h"
 #include "google/protobuf/empty.pb.h"
 #include "grpcpp/client_context.h"
+#include "grpcpp/server_context.h"
+#include "intrinsic/util/grpc/grpc.h"
 #include "intrinsic/util/status/status_conversion_grpc.h"
 #include "intrinsic/util/status/status_macros.h"
 #include "intrinsic/world/objects/object_world_client.h"
@@ -42,34 +45,92 @@ namespace simulation {
 
 namespace {
 
+// Number of attempts made for a world service RPC that reports UNAVAILABLE.
+constexpr int kNumWorldServiceRpcAttempts = 3;
+
+// Creates the client context for one attempt of a world service RPC.
+std::unique_ptr<grpc::ClientContext> absl_nonnull MakeWorldServiceContext(
+    const grpc::ServerContext* absl_nullable server_context) {
+  if (server_context == nullptr) {
+    auto ctx = std::make_unique<grpc::ClientContext>();
+    ConfigureClientContext(ctx.get());
+    return ctx;
+  }
+
+  std::unique_ptr<grpc::ClientContext> ctx =
+      grpc::ClientContext::FromServerContext(*server_context);
+  const auto propagated_deadline = ctx->deadline();
+  ConfigureClientContext(ctx.get());
+  if (propagated_deadline < ctx->deadline()) {
+    ctx->set_deadline(propagated_deadline);
+  }
+  return ctx;
+}
+
+// Runs `rpc` and retries it while it reports UNAVAILABLE.
+absl::Status CallWorldServiceWithRetries(
+    std::string_view rpc_name,
+    const grpc::ServerContext* absl_nullable server_context,
+    absl::FunctionRef<absl::Status(grpc::ClientContext&)> rpc) {
+  absl::Status status;
+  for (int attempt = 1; attempt <= kNumWorldServiceRpcAttempts; ++attempt) {
+    std::unique_ptr<grpc::ClientContext> ctx =
+        MakeWorldServiceContext(server_context);
+    status = rpc(*ctx);
+    if (!absl::IsUnavailable(status)) {
+      return status;
+    }
+
+    LOG(WARNING) << "World service RPC " << rpc_name << " failed [" << status
+                 << "] Attempt (" << attempt << "/"
+                 << kNumWorldServiceRpcAttempts << ")";
+
+    if (server_context != nullptr &&
+        (server_context->IsCancelled() ||
+         absl::FromChrono(server_context->deadline()) <= absl::Now())) {
+      LOG(WARNING) << "Not retrying " << rpc_name
+                   << " because the calling RPC was cancelled or its deadline "
+                      "has passed.";
+      return status;
+    }
+  }
+  return status;
+}
+
 // Returns the id of the cloned world.
 absl::StatusOr<std::string> CloneWorldWithContext(
     intrinsic_proto::world::ObjectWorldService::StubInterface& stub,
-    std::unique_ptr<grpc::ClientContext> absl_nonnull ctx,
+    const grpc::ServerContext* absl_nullable server_context,
     std::string_view world_id) {
   intrinsic_proto::world::CloneWorldRequest request;
   request.set_world_id(world_id);
 
   intrinsic_proto::world::WorldMetadata response;
-  INTR_RETURN_IF_ERROR(
-      ToAbslStatus(stub.CloneWorld(ctx.get(), request, &response)));
+  INTR_RETURN_IF_ERROR(CallWorldServiceWithRetries(
+      "ObjectWorldService.CloneWorld", server_context,
+      [&](grpc::ClientContext& ctx) {
+        return ToAbslStatus(stub.CloneWorld(&ctx, request, &response));
+      }));
   return response.id();
 }
 
 absl::Status DeleteWorld(
     intrinsic_proto::world::ObjectWorldService::StubInterface& stub,
     std::string_view world_id) {
-  grpc::ClientContext ctx;
   intrinsic_proto::world::DeleteWorldRequest request;
   request.set_world_id(world_id);
   google::protobuf::Empty response;
 
-  return ToAbslStatus(stub.DeleteWorld(&ctx, request, &response));
+  return CallWorldServiceWithRetries(
+      "ObjectWorldService.DeleteWorld", /*server_context=*/nullptr,
+      [&](grpc::ClientContext& ctx) {
+        return ToAbslStatus(stub.DeleteWorld(&ctx, request, &response));
+      });
 }
 
 absl::Status CloneWorldToWithContext(
     intrinsic_proto::world::ObjectWorldService::StubInterface& stub,
-    std::unique_ptr<grpc::ClientContext> absl_nonnull ctx,
+    const grpc::ServerContext* absl_nullable server_context,
     std::string_view world_id, std::string_view dest_world_id) {
   intrinsic_proto::world::CloneWorldRequest request;
   request.set_world_id(world_id);
@@ -77,7 +138,11 @@ absl::Status CloneWorldToWithContext(
   request.set_allow_overwrite(true);
 
   intrinsic_proto::world::WorldMetadata response;
-  return ToAbslStatus(stub.CloneWorld(ctx.get(), request, &response));
+  return CallWorldServiceWithRetries(
+      "ObjectWorldService.CloneWorld", server_context,
+      [&](grpc::ClientContext& ctx) {
+        return ToAbslStatus(stub.CloneWorld(&ctx, request, &response));
+      });
 }
 
 absl::StatusOr<std::vector<world::WorldObject>> ListSimDisabledObjects(
@@ -140,20 +205,12 @@ absl::Status CloneSimWorldWithServerContext(
   LOG(INFO) << "Cloning sim world [" << sim_world_id << "] from start world ["
             << start_world_id << "].";
 
-  auto make_client_context =
-      [&context]() -> std::unique_ptr<grpc::ClientContext> {
-    if (context == nullptr) {
-      return std::make_unique<grpc::ClientContext>();
-    }
-    return grpc::ClientContext::FromServerContext(*context);
-  };
-
   INTR_ASSIGN_OR_RETURN(
       std::vector<world::WorldObject> start_world_sim_disabled_objects,
       ListSimDisabledObjects(object_world_service, start_world_id));
 
   if (start_world_sim_disabled_objects.empty()) {
-    return CloneWorldToWithContext(*object_world_service, make_client_context(),
+    return CloneWorldToWithContext(*object_world_service, context,
                                    start_world_id, sim_world_id);
   }
 
@@ -162,8 +219,7 @@ absl::Status CloneSimWorldWithServerContext(
 
   INTR_ASSIGN_OR_RETURN(
       std::string staging_world_id,
-      CloneWorldWithContext(*object_world_service, make_client_context(),
-                            start_world_id));
+      CloneWorldWithContext(*object_world_service, context, start_world_id));
   absl::Cleanup delete_staging_world = [object_world_service,
                                         staging_world_id]() {
     if (auto status = DeleteWorld(*object_world_service, staging_world_id);
@@ -185,7 +241,7 @@ absl::Status CloneSimWorldWithServerContext(
       << "Failed to delete some sim-disabled objects in the starting world. "
          "These objects will show up in the sim world. Error: "
       << deletion_status;
-  return CloneWorldToWithContext(*object_world_service, make_client_context(),
+  return CloneWorldToWithContext(*object_world_service, context,
                                  staging_world_id, sim_world_id);
 }
 
@@ -248,11 +304,12 @@ absl::Status SimulatorWorldManager::StopUpdatesAndResetWorld(
     const grpc::ServerContext* context, std::string_view start_world_id,
     bool ignore_disabled_object_deletion_error) {
   if (world_updater_service_ != nullptr) {
-    grpc::ClientContext ctx;
-    intrinsic_proto::world::PauseUpdaterRequest req;
-    intrinsic_proto::world::PauseUpdaterResponse resp;
-    INTR_RETURN_IF_ERROR(
-        ToAbslStatus(world_updater_service_->Pause(&ctx, req, &resp)));
+    INTR_RETURN_IF_ERROR(CallWorldServiceWithRetries(
+        "WorldUpdater.Pause", context, [this](grpc::ClientContext& ctx) {
+          intrinsic_proto::world::PauseUpdaterRequest req;
+          intrinsic_proto::world::PauseUpdaterResponse resp;
+          return ToAbslStatus(world_updater_service_->Pause(&ctx, req, &resp));
+        }));
   }
 
   // Reset the simulator world by cloning it from the start world.
@@ -266,11 +323,15 @@ absl::Status SimulatorWorldManager::StopUpdatesAndResetWorld(
 
 absl::Status SimulatorWorldManager::RestartUpdates() {
   if (world_updater_service_ != nullptr) {
-    grpc::ClientContext ctx;
-    intrinsic_proto::world::ResumeUpdaterRequest req;
-    intrinsic_proto::world::ResumeUpdaterResponse resp;
-    INTR_RETURN_IF_ERROR(
-        ToAbslStatus(world_updater_service_->Resume(&ctx, req, &resp)));
+    // No server context is passed on purpose: updates have to be restarted
+    // even if the call that stopped them was cancelled or timed out.
+    INTR_RETURN_IF_ERROR(CallWorldServiceWithRetries(
+        "WorldUpdater.Resume", /*server_context=*/nullptr,
+        [this](grpc::ClientContext& ctx) {
+          intrinsic_proto::world::ResumeUpdaterRequest req;
+          intrinsic_proto::world::ResumeUpdaterResponse resp;
+          return ToAbslStatus(world_updater_service_->Resume(&ctx, req, &resp));
+        }));
   }
   return absl::OkStatus();
 }
@@ -278,11 +339,14 @@ absl::Status SimulatorWorldManager::RestartUpdates() {
 absl::StatusOr<bool> SimulatorWorldManager::CheckWorldExists(
     intrinsic_proto::world::ObjectWorldService::StubInterface& stub,
     std::string_view world_id) {
-  grpc::ClientContext ctx;
   intrinsic_proto::world::GetWorldRequest request;
   request.set_world_id(world_id);
   intrinsic_proto::world::World response;
-  auto status = ToAbslStatus(stub.GetWorld(&ctx, request, &response));
+  absl::Status status = CallWorldServiceWithRetries(
+      "ObjectWorldService.GetWorld", /*server_context=*/nullptr,
+      [&](grpc::ClientContext& ctx) {
+        return ToAbslStatus(stub.GetWorld(&ctx, request, &response));
+      });
   if (status.ok()) {
     return true;
   }

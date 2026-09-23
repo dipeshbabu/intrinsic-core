@@ -45,7 +45,7 @@ spec:
           volumeMounts:
             - mountPath: "/data/artifact_store"
               name: temp-data-volume
-            - mountPath: "/run/containerd/containerd.sock"
+            - mountPath: "/run/containerd"
               name: containerd-socket
           securityContext:
             readOnlyRootFilesystem: true
@@ -58,7 +58,7 @@ spec:
           emptyDir: {}
         - name: containerd-socket
           hostPath:
-            path: "/run/k3s/containerd/containerd.sock"
+            path: "/run/k3s/containerd"
       securityContext:
         # here we are hitting the crux of the security, host system either have
         # to have contained socked rw for non-privilege users or this needs

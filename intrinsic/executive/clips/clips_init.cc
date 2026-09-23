@@ -35,6 +35,7 @@
 #include "absl/types/span.h"
 #include "google/protobuf/message.h"  // IWYU pragma: export
 #include "google/protobuf/message.h"
+#include "google/rpc/status.pb.h"
 #include "intrinsic/executive/clips/cc/id_handling.h"
 #include "intrinsic/executive/clips/cc/recovery.h"
 #include "intrinsic/executive/clips/cc/time.h"
@@ -216,6 +217,7 @@ absl::Status InitClipsBehaviorTreeSupportImpl(Environment* env,
       intrinsic_proto::executive::RunMetadata>();
   google::protobuf::LinkMessageReflection<
       intrinsic_proto::executive::RunResponse>();
+  google::protobuf::LinkMessageReflection<google::rpc::Status>();
   google::protobuf::LinkMessageReflection<
       intrinsic_proto::executive::WorldQuery>();
   for (const std::string& file : BehaviorTreeClipsFiles()) {

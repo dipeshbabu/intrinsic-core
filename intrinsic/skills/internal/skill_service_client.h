@@ -83,8 +83,6 @@ class SkillServiceClient : public SkillServiceClientInterface {
       absl::string_view internal_data, std::optional<absl::Duration> timeout,
       const intrinsic_proto::data_logger::Context& log_context) final;
 
-  absl::Status TryCancelPredict() final;
-
   // Calls the GetFootprint rpc on a skill and returns the results. Composes the
   // request from the given inputs.
   //

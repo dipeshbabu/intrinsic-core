@@ -16,6 +16,7 @@ syntax = "proto3";
 
 package intrinsic_proto.solution_versions.v1;
 
+import "google/longrunning/operations.proto";
 import "google/protobuf/descriptor.proto";
 import "google/protobuf/field_mask.proto";
 import "google/rpc/status.proto";
@@ -291,6 +292,14 @@ service SolutionVersionService {
   //   alternatively call `UpdateBranch` to fast-forward the tip directly
   //   without a merge commit.
   rpc ApplyMerge(ApplyMergeRequest) returns (ApplyMergeResponse) {}
+
+  // Describes differences between two solution snapshots asynchronously.
+  rpc DescribeDiff(DescribeDiffRequest) returns (google.longrunning.Operation) {
+    option (google.longrunning.operation_info) = {
+      response_type: "DescribeDiffResponse"
+      metadata_type: "DescribeDiffMetadata"
+    };
+  }
 
 }
 
@@ -879,5 +888,28 @@ message ApplyMergeResponse {
 
   // The deployment branch that received the merge snapshot.
   Branch deployment_branch = 2;
+}
+
+// Request message for DescribeDiff.
+message DescribeDiffRequest {
+  // The baseline state of the comparison.
+  SnapshotSource reference = 1;
+
+  // The state that is compared against the reference.
+  SnapshotSource target = 2;
+}
+
+message DescribeDiffMetadata {
+  string status_message = 1;
+  string thinking_explanation = 2;
+}
+
+// Terminal response message on completion.
+message DescribeDiffResponse {
+  // Imperative active-voice title conforming to git standards (<= 72 chars).
+  string title = 1;
+
+  // Markdown-formatted summary.
+  string summary = 2;
 }
 

@@ -35,27 +35,39 @@
 
 namespace intrinsic {
 
-// Extract the IDs and poses of all transform nodes referred in the given
-// geometric constraint and saves them in transform_nodes_with_poses.
-absl::Status ExtractIDWithPoseFromGeometricConstraint(
+// Resolves all transform nodes referenced in `top_level_constraint` in
+// `object_world` and inserts their resource IDs and root-relative poses into
+// `transform_nodes_with_poses`.
+absl::Status ExtractIdWithPoseFromGeometricConstraint(
     const object_world::ObjectWorld& object_world,
     const intrinsic_proto::motion_planning::v1::GeometricConstraint&
         top_level_constraint,
     absl::flat_hash_map<ObjectWorldResourceId, Pose3d>&
         transform_nodes_with_poses);
 
+// Resolves all transform nodes referenced in `top_level_constraint` in
+// `object_world` and inserts their resource IDs and root-relative poses into
+// `transform_nodes_with_poses`.
+absl::Status ExtractIdWithPoseFromUniformGeometricConstraint(
+    const object_world::ObjectWorld& object_world,
+    const intrinsic_proto::motion_planning::v1::UniformGeometricConstraint&
+        top_level_constraint,
+    absl::flat_hash_map<ObjectWorldResourceId, Pose3d>&
+        transform_nodes_with_poses);
+
 // Extract the IDs and poses of all transform nodes referred in the given
 // motion specification and saves them in transform_nodes_with_poses.
-absl::Status ExtractIDWithPoseFromMotionSpecification(
+absl::Status ExtractIdWithPoseFromMotionSpecification(
     const object_world::ObjectWorld& object_world,
     const intrinsic_proto::motion_planning::v1::MotionSpecification&
         motion_specification,
     absl::flat_hash_map<ObjectWorldResourceId, Pose3d>&
         transform_nodes_with_poses);
 
-// Extract the IDs and poses of all transform nodes referred in the given
-// motion segment and saves them in transform_nodes_with_poses.
-absl::Status ExtractIDWithPoseFromMotionSegment(
+// Resolves all transform nodes referenced in the target and path constraints of
+// `motion_segment` in `object_world` and inserts their resource IDs and
+// root-relative poses into `transform_nodes_with_poses`.
+absl::Status ExtractIdWithPoseFromMotionSegment(
     const object_world::ObjectWorld& object_world,
     const intrinsic_proto::motion_planning::v1::MotionSegment& motion_segment,
     absl::flat_hash_map<ObjectWorldResourceId, Pose3d>&

@@ -775,7 +775,7 @@ MotionPlanningRequestCacheKey::Create(
       GetAllOffspringObjectIDs(robot);
   INTR_RETURN_IF_ERROR(GetAllObjectsAsIDWithPose(
       object_world, /*ignore_list=*/robot_offspring, poses_of_all_objects));
-  INTR_RETURN_IF_ERROR(ExtractIDWithPoseFromMotionSpecification(
+  INTR_RETURN_IF_ERROR(ExtractIdWithPoseFromMotionSpecification(
       object_world, motion_specification, poses_of_all_related_frames));
 
   // Extract attachment and geometry information in the world

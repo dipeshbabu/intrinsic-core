@@ -17,13 +17,15 @@
 import base64
 from typing import List
 from typing import Optional
-from typing import Tuple
 
 from google.protobuf import duration_pb2
 import grpc
 
 from intrinsic.assets import id_utils
+from intrinsic.assets import interface_utils
+from intrinsic.assets.dependencies import utils as asset_utils
 from intrinsic.assets.proto import id_pb2
+from intrinsic.assets.proto.v1 import resolved_dependency_pb2
 from intrinsic.logging.proto import context_pb2
 from intrinsic.math.python import proto_conversion
 from intrinsic.perception.client.v1.python.camera import cameras
@@ -101,31 +103,58 @@ def create_channel(
   channel = grpc.insecure_channel(
       connection_params.address, options=_GRPC_OPTIONS
   )
-  headers = connection_params.headers
-  if data_logger_context is not None:
-    header = (
-        _LOGGING_CONTEXT_METADATA_KEY,
-        base64.urlsafe_b64encode(
-            data_logger_context.SerializeToString(),
-        ).decode(),
-    )
-
-    def headers_with_logging_context() -> List[Tuple[str, str]]:
-      if connection_params.headers is None:
-        return [header]
-      else:
-        other_headers = connection_params.headers()
-        if other_headers is None:
-          return [header]
-        else:
-          other_headers.append(header)
-          return other_headers
-
-    headers = headers_with_logging_context
-
-  return grpc.intercept_channel(
-      channel, interceptor.HeaderAdderInterceptor(headers)
+  channel = grpc.intercept_channel(
+      channel, interceptor.HeaderAdderInterceptor(connection_params.headers)
   )
+  return _add_logging_context_to_channel(channel, data_logger_context)
+
+
+def _pose_estimation_service_interface_uri() -> str:
+  """Returns the gRPC interface URI for the PoseEstimationService."""
+  return (
+      f"{interface_utils.GRPC_URI_PREFIX}"
+      f"{pose_estimation_service_pb2.DESCRIPTOR.services_by_name['PoseEstimationService'].full_name}"
+  )
+
+
+def _add_logging_context_to_channel(
+    channel: grpc.Channel,
+    data_logger_context: Optional[context_pb2.Context] = None,
+) -> grpc.Channel:
+  """Intercepts a channel to inject the data logger context header."""
+  if data_logger_context is None:
+    return channel
+
+  header = (
+      _LOGGING_CONTEXT_METADATA_KEY,
+      base64.urlsafe_b64encode(
+          data_logger_context.SerializeToString(),
+      ).decode(),
+  )
+  return grpc.intercept_channel(
+      channel, interceptor.HeaderAdderInterceptor(lambda: [header])
+  )
+
+
+def create_channel_from_resolved_dependency(
+    dep: resolved_dependency_pb2.ResolvedDependency,
+    data_logger_context: Optional[context_pb2.Context] = None,
+) -> grpc.Channel:
+  """Creates an intercepted gRPC channel from a ResolvedDependency.
+
+  Args:
+    dep: The resolved dependency for the perception service.
+    data_logger_context: Optional logging context metadata to inject.
+
+  Returns:
+    An intercepted gRPC Channel instance.
+  """
+  channel = asset_utils.connect(
+      dep=dep,
+      iface=_pose_estimation_service_interface_uri(),
+      grpc_options=_GRPC_OPTIONS,
+  )
+  return _add_logging_context_to_channel(channel, data_logger_context)
 
 
 def _get_capture_slots_for_camera(camera: cameras.Camera) -> List[str]:

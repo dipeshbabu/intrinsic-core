@@ -15,9 +15,9 @@ First, follow [Getting started](getting_started.md) to start an Intrinsic Core s
 
 ## Option A: Use RViz to visualize the execution state
 
-RViz is part of the ROS project, so we'll begin by installing that. Note that RViz relies on a "ROS Bridge" component in the [OMTS](../glossary/intrinsic_terms.md#open-machine-tending-solution-omts) solution.
+RViz is part of the ROS project, so we'll begin by installing that. Note that RViz relies on a "ROS Bridge" component in the [Open Machine Tending Solution (OMTS)](../glossary/intrinsic_terms.md#open-machine-tending-solution-omts) solution.
 
-1. Follow [Installing on Ubuntu - how-to](https://docs.ros.org/en/lyrical/Get-Started/Installation/Ubuntu-Install-Debs.html) and return to this guide after installing "ros-lyrical-desktop".
+1. Install "ros-lyrical-desktop" by following the [Installing on Ubuntu — how-to](https://docs.ros.org/en/lyrical/Get-Started/Installation/Ubuntu-Install-Debs.html), then return to this tutorial.
 2. Run this command to ensure you have the necessary [packages](../glossary/intrinsic_terms.md#package):
 
    ```bash
@@ -74,7 +74,7 @@ RViz is part of the ROS project, so we'll begin by installing that. Note that RV
 
 Gazebo requires additional steps to be able to load the 3D meshes from the solution:
 
-1. Follow [Binary Installation on Ubuntu](https://gazebosim.org/docs/latest/install_ubuntu/) to install the latest version of Gazebo, including the UI.
+1. Install the latest version of Gazebo (including the UI) by following [Binary Installation on Ubuntu](https://gazebosim.org/docs/latest/install_ubuntu/).
 2. Apply a workaround for older Intrinsic Core builds: (you'll need to repeat this any time you see errors from Gazebo about missing meshes)
 
    ```bash
@@ -102,7 +102,7 @@ You should see a 3D view including the robot:
 
 ### Troubleshooting
 
-* If the Gazebo GUI doesn't load (empty window, no output on terminal), it means it can't connect to the Gazebo server. Double-check that you started the Solution with `--operation_mode=sim` as described in [Getting Started](getting_started.md).
+* If the Gazebo GUI (Graphical User Interface) doesn't load (empty window, no output on terminal), it means it can't connect to the Gazebo server. Double-check that you started the Solution with `--operation_mode=sim` as described in [Getting Started](getting_started.md).
   * Because the Gazebo server runs inside Kubernetes, we can use k9s, a terminal UI for managing Kubernetes, to check the logs or restart it.
   * In the terminal, run:
 

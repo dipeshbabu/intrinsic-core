@@ -1,5 +1,5 @@
 
-# ros2_control compatiblity
+# ros2_control compatibility
 
 If you followed the [Robot
 Bringup](/developer_resources/learn/tutorials/interactive_tutorials/icon/robot_bringup.md)

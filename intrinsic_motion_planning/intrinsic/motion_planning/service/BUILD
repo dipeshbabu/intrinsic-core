@@ -586,6 +586,8 @@ cc_library(
         "@abseil-cpp//absl/log",
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
         "@intrinsic_apis//intrinsic/icon/proto:joint_space_cc_proto",
         "@intrinsic_apis//intrinsic/motion_planning/proto/v1:geometric_constraints_cc_proto",
         "@intrinsic_apis//intrinsic/world/proto:collision_settings_cc_proto",
