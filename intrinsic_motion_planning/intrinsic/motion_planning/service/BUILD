@@ -595,26 +595,6 @@ cc_library(
     ],
 )
 
-cc_library(
-    name = "motion_planner_cache_key_normalization_test_utils",
-    testonly = True,
-    srcs = ["motion_planner_cache_key_normalization_test_utils.cc"],
-    hdrs = ["motion_planner_cache_key_normalization_test_utils.h"],
-    deps = [
-        ":motion_planner_cache_utils_test_utils",
-        "//intrinsic/world:geometry_types",
-        "//intrinsic_motion_planning/intrinsic/motion_planning/proto/v1:motion_planner_service_cc_proto",
-        "//intrinsic_motion_planning/intrinsic/motion_planning/proto/v1:motion_specification_cc_proto",
-        "//intrinsic_sdk/intrinsic/geometry/api:affine_transform_of_geometry",
-        "//intrinsic_sdk/intrinsic/geometry/api:geometry",
-        "//intrinsic_sdk/intrinsic/world/component:geometry_component",
-        "@abseil-cpp//absl/strings:string_view",
-        "@intrinsic_apis//intrinsic/motion_planning/proto/v1:geometric_constraints_cc_proto",
-        "@intrinsic_apis//intrinsic/motion_planning/proto/v1:robot_specification_cc_proto",
-        "@intrinsic_apis//intrinsic/world/proto:object_world_refs_cc_proto",
-    ],
-)
-
 # keep
 proto_library(
     name = "motion_planner_cache_proto",
