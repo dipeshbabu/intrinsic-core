@@ -11,8 +11,14 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 360
     steps:
+      - name: Reclaim space on the disposable hosted runner
+        run: |
+          df -h /
+          sudo rm -rf -- /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          sudo docker image prune --all --force
+          df -h /
       - name: Check out the exact fix commit
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -22,18 +28,18 @@ jobs:
         uses: bazel-contrib/setup-bazel@0.14.0
         with:
           bazelisk-cache: true
-          disk-cache: intrinsic-core-build
-          external-cache: true
-          repository-cache: true
       - name: Regression tests
         run: bazel test //intrinsic_sdk/intrinsic/math/python:quaternion_test --test_output=errors
+      - name: Build the published CI artifacts
+        run: |
+          unset -v ANDROID_HOME ANDROID_SDK_HOME
+          bazel build //intrinsic_runtime:intrinsic_base //intrinsic/tools/inctl:inctl_external
       - name: Build all targets
         run: |
           unset -v ANDROID_HOME ANDROID_SDK_HOME
           bazel build //...
       - name: Test all targets
         run: bazel test //... --test_output=errors
-      - name: Build the published CI artifacts
-        run: |
-          unset -v ANDROID_HOME ANDROID_SDK_HOME
-          bazel build //intrinsic_runtime:intrinsic_base //intrinsic/tools/inctl:inctl_external
+      - name: Report remaining disk space
+        if: always()
+        run: df -h /
