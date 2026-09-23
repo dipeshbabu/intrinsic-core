@@ -19,14 +19,11 @@ rotation.
 """
 
 import math
-from typing import Optional
-from typing import Text
-from typing import Union
-
-import numpy as np
+from typing import Optional, Text, Union
 
 from intrinsic.math.python import math_types
 from intrinsic.math.python import vector_util
+import numpy as np
 
 # ----------------------------------------------------------------------------
 # Pytype definitions.
