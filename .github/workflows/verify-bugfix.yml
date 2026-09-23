@@ -29,17 +29,21 @@ jobs:
         with:
           bazelisk-cache: true
       - name: Regression tests
-        run: bazel test //intrinsic_sdk/intrinsic/math/python:quaternion_test --test_output=errors
+        run: |
+          unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
+          bazel test //intrinsic_sdk/intrinsic/math/python:quaternion_test --test_output=errors
       - name: Build the published CI artifacts
         run: |
-          unset -v ANDROID_HOME ANDROID_SDK_HOME
+          unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
           bazel build //intrinsic_runtime:intrinsic_base //intrinsic/tools/inctl:inctl_external
       - name: Build all targets
         run: |
-          unset -v ANDROID_HOME ANDROID_SDK_HOME
+          unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
           bazel build //...
       - name: Test all targets
-        run: bazel test //... --test_output=errors
+        run: |
+          unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
+          bazel test //... --test_output=errors
       - name: Report remaining disk space
         if: always()
         run: df -h /
