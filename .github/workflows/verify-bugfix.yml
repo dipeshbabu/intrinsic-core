@@ -1,4 +1,4 @@
-name: Validate math fixes with isolated tests
+name: Verify exact-commit builds and complete test coverage
 
 on:
   push:
@@ -9,44 +9,67 @@ permissions:
   actions: read
   contents: read
 
-env:
-  FIX_COMMIT: c44dcbbf2a894b5fb210dd0c2816f76218897026
-  BUILD_RUN_ID: '35811349800'
-  BUILD_RUN_COMMIT: 16a5c0c34376a5717c6f66d09e73cabaa558d6a4
-
 jobs:
-  validate:
+  scalar_validation:
+    name: Scalar fix validation
     runs-on: ubuntu-24.04
-    timeout-minutes: 360
     steps:
-      - name: Verify completed build checks for this exact source commit
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Verify exact-commit build and retry provenance
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          actual_head=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" --jq .head_sha)
-          test "$actual_head" = "$BUILD_RUN_COMMIT"
-          gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/verify-bugfix.yml?ref=$BUILD_RUN_COMMIT" \
-            -H 'Accept: application/vnd.github.raw+json' > "$RUNNER_TEMP/prior-build-workflow.yml"
-          grep -Fxq "          ref: $FIX_COMMIT" "$RUNNER_TEMP/prior-build-workflow.yml"
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID/jobs" > "$RUNNER_TEMP/prior-build-jobs.json"
-          jq -e '[.jobs[].steps[] | select(.name == "Regression tests" or .name == "Build the published CI artifacts" or .name == "Build all targets")] | length == 3 and all(.[]; .status == "completed" and .conclusion == "success")' "$RUNNER_TEMP/prior-build-jobs.json"
-          echo "Verified successful regression, artifact, and full-build checks: https://github.com/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID"
+          bash .github/scripts/verify-build-evidence.sh \
+            c44dcbbf2a894b5fb210dd0c2816f76218897026 \
+            35811349800 16a5c0c34376a5717c6f66d09e73cabaa558d6a4
+          retry_head=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/35827666583" --jq .head_sha)
+          test "$retry_head" = 0364611fcd1dee09ca82a3f6d4e046b75b69bbe1
+          gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/verify-bugfix.yml?ref=$retry_head" \
+            -H 'Accept: application/vnd.github.raw+json' > "$RUNNER_TEMP/retry-workflow.yml"
+          grep -Fxq '  FIX_COMMIT: c44dcbbf2a894b5fb210dd0c2816f76218897026' "$RUNNER_TEMP/retry-workflow.yml"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/35827666583/jobs" > "$RUNNER_TEMP/retry-jobs.json"
+          jq -e '[.jobs[].steps[] | select(.name == "Verify regression tests and network isolation")] | length == 1 and all(.[]; .status == "completed" and .conclusion == "success")' "$RUNNER_TEMP/retry-jobs.json"
+      - name: Verify all 269 scalar-commit test targets have passed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run view 35811349800 --repo "$GITHUB_REPOSITORY" --log > "$RUNNER_TEMP/scalar-full.log"
+          gh run view 35827666583 --repo "$GITHUB_REPOSITORY" --log > "$RUNNER_TEMP/scalar-retries.log"
+          node .github/scripts/verify-test-results.cjs \
+            "$RUNNER_TEMP/scalar-full.log" 'Test all targets' \
+            "$RUNNER_TEMP/scalar-retries.log" 'Verify regression tests and network isolation' \
+            269 "$RUNNER_TEMP/scalar-retries.log" 'Test all scalar-fix targets with network isolation'
+
+  quaternion_validation:
+    name: Quaternion fix validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Verify completed quaternion build checks and save evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash .github/scripts/verify-build-evidence.sh \
+            0bb9c4cf5da6e76241166a5f70a2f6e89f415e56 \
+            35811317656 f21f0048dc523d748352d546d35fd893c37baf33
+          gh run view 35811317656 --repo "$GITHUB_REPOSITORY" --log > "$RUNNER_TEMP/quaternion-full.log"
+          cp .github/scripts/verify-test-results.cjs "$RUNNER_TEMP/verify-test-results.cjs"
       - name: Reclaim space on the disposable hosted runner
         run: |
-          df -h /
-          sudo rm -rf -- /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          sudo rm -rf -- /usr/share/dotnet /usr/local/lib/android /opt/ghc
           sudo docker image prune --all --force
           df -h /
-      - name: Check out the exact fix commit
+      - name: Check out the exact quaternion-fix commit
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          ref: ${{ env.FIX_COMMIT }}
+          ref: 0bb9c4cf5da6e76241166a5f70a2f6e89f415e56
           lfs: true
       - name: Set up Bazel
         uses: bazel-contrib/setup-bazel@0.14.0
         with:
           bazelisk-cache: true
-      - name: Enable the Bazel Linux sandbox
+      - name: Enable network isolation for test execution
         run: |
           unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
           bazel_install_base=$(bazel --batch info install_base)
@@ -61,46 +84,24 @@ jobs:
           if [ -f /proc/sys/kernel/unprivileged_userns_clone ]; then
             sudo sysctl -w kernel.unprivileged_userns_clone=1
           fi
-      - name: Verify regression tests and network isolation
+      - name: Rerun quaternion regression and network-sensitive targets
         run: |
+          set -euo pipefail
           unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
+          test "$(git rev-parse HEAD)" = 0bb9c4cf5da6e76241166a5f70a2f6e89f415e56
           bazel test \
-            //intrinsic_sdk/intrinsic/math/python:math_types_test \
+            //intrinsic_sdk/intrinsic/math/python:quaternion_test \
             //intrinsic_control/intrinsic/icon/hardware_modules/kuka_rsi/kuka_system_control:kuka_system_control_factory_test \
             //intrinsic_hardware/intrinsic/hardware/gpio:gpio_client_test \
             //intrinsic_hardware/intrinsic/hardware/gpio:opcua_gpio_service_test \
             //intrinsic_hardware/intrinsic/hardware/gpio:opcua_gpio_service_delayed_connection_test \
-            --spawn_strategy=linux-sandbox --strategy=TestRunner=linux-sandbox --test_output=errors
-      - name: Test all scalar-fix targets with network isolation
+            --spawn_strategy=processwrapper-sandbox --strategy=TestRunner=linux-sandbox \
+            --test_output=errors 2>&1 | tee "$RUNNER_TEMP/quaternion-retries.log"
+      - name: Verify all 269 quaternion-commit test targets have passed
         run: |
-          unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
-          test "$(git rev-parse HEAD)" = "$FIX_COMMIT"
-          bazel test //... --spawn_strategy=linux-sandbox --strategy=TestRunner=linux-sandbox --test_output=errors
-      - name: Verify completed quaternion build checks
-        env:
-          GH_TOKEN: ${{ github.token }}
-          FIX_COMMIT: 0bb9c4cf5da6e76241166a5f70a2f6e89f415e56
-          BUILD_RUN_ID: '35811317656'
-          BUILD_RUN_COMMIT: f21f0048dc523d748352d546d35fd893c37baf33
-        run: |
-          actual_head=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" --jq .head_sha)
-          test "$actual_head" = "$BUILD_RUN_COMMIT"
-          gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/verify-bugfix.yml?ref=$BUILD_RUN_COMMIT" \
-            -H 'Accept: application/vnd.github.raw+json' > "$RUNNER_TEMP/prior-quaternion-build-workflow.yml"
-          grep -Fxq "          ref: $FIX_COMMIT" "$RUNNER_TEMP/prior-quaternion-build-workflow.yml"
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID/jobs" > "$RUNNER_TEMP/prior-quaternion-build-jobs.json"
-          jq -e '[.jobs[].steps[] | select(.name == "Regression tests" or .name == "Build the published CI artifacts" or .name == "Build all targets")] | length == 3 and all(.[]; .status == "completed" and .conclusion == "success")' "$RUNNER_TEMP/prior-quaternion-build-jobs.json"
-          echo "Verified successful quaternion build checks: https://github.com/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID"
-      - name: Check out the exact quaternion-fix commit
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-        with:
-          ref: 0bb9c4cf5da6e76241166a5f70a2f6e89f415e56
-          lfs: true
-      - name: Test all quaternion-fix targets with network isolation
-        run: |
-          unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
-          test "$(git rev-parse HEAD)" = 0bb9c4cf5da6e76241166a5f70a2f6e89f415e56
-          bazel test //... --spawn_strategy=linux-sandbox --strategy=TestRunner=linux-sandbox --test_output=errors
+          node "$RUNNER_TEMP/verify-test-results.cjs" \
+            "$RUNNER_TEMP/quaternion-full.log" 'Test all targets' \
+            "$RUNNER_TEMP/quaternion-retries.log" raw 269
       - name: Report remaining disk space
         if: always()
         run: df -h /
