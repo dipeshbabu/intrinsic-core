@@ -16,8 +16,6 @@
 
 import sys
 
-import numpy as np
-
 from intrinsic.icon.proto import cart_space_pb2
 from intrinsic.math.proto import array_pb2
 from intrinsic.math.proto import matrix_pb2
@@ -27,6 +25,7 @@ from intrinsic.math.proto import quaternion_pb2
 from intrinsic.math.proto import twist_pb2
 from intrinsic.math.proto import vector3_pb2
 from intrinsic.math.python import data_types
+import numpy as np
 
 _QUATERNION_UNITY_TOLERANCE = np.finfo(np.float64).eps * 32
 
@@ -227,7 +226,7 @@ def pose_to_proto(pose: data_types.Pose3) -> pose_pb2.Pose:
   # Normalize quaternion if this is not already the case (don't re-normalize and
   # introduce numerical variations). Pose3 may contain a non-unit quaternion.
   quat = pose.quaternion
-  if not quat.is_normalized():
+  if not quat.is_normalized(_QUATERNION_UNITY_TOLERANCE):
     quat = quat.normalize()
   msg.orientation.CopyFrom(quaternion_to_proto(quat))
   return msg
@@ -285,11 +284,13 @@ _NP_TYPE_TO_SCALAR_TYPE = {
 
 # Scalar types for which byte order does not apply (because they are single byte
 # or fewer).
-_NO_BYTE_ORDER_SCALAR_TYPES = frozenset({
-    array_pb2.Array.ScalarType.BOOL_SCALAR_TYPE,
-    array_pb2.Array.ScalarType.INT8_SCALAR_TYPE,
-    array_pb2.Array.ScalarType.UINT8_SCALAR_TYPE,
-})
+_NO_BYTE_ORDER_SCALAR_TYPES = frozenset(
+    {
+        array_pb2.Array.ScalarType.BOOL_SCALAR_TYPE,
+        array_pb2.Array.ScalarType.INT8_SCALAR_TYPE,
+        array_pb2.Array.ScalarType.UINT8_SCALAR_TYPE,
+    }
+)
 
 # Maps between Array.ByteOrder and the corresponding numpy string.
 _PROTO_BYTE_ORDER_TO_NUMPY = {
