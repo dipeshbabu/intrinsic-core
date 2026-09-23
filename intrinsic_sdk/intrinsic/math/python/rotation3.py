@@ -22,10 +22,11 @@ A rotation is represented internally as a normalized quaternion.
 import math
 from typing import Optional, Text, Tuple
 
+import numpy as np
+
 from intrinsic.math.python import math_types
 from intrinsic.math.python import quaternion as quaternion_class
 from intrinsic.math.python import vector_util
-import numpy as np
 
 # ----------------------------------------------------------------------------
 # Error messages for exceptions.
