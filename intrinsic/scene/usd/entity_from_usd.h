@@ -44,7 +44,7 @@ namespace usd {
 // See docs:
 // https://openusd.org/release/api/usd_physics_page_front.html#usdPhysics_rigid_bodies
 absl::StatusOr<intrinsic_proto::scene_object::v1::Link> LinkProtoFromRigidBody(
-    const pxr::UsdPhysicsRigidBodyAPI rigid_body,
+    const pxr::UsdPhysicsRigidBodyAPI& rigid_body,
     pxr::UsdGeomXformCache& xform_cache,
     GeometrySerializer& geometry_serializer);
 
@@ -129,20 +129,20 @@ absl::StatusOr<JointProtoWithInfo> JointProtoFromUsdJoint(
 // - Any geometry will be written to storage using the given
 // `geometry_serializer`, and the geometry protos will use storage_refs.
 absl::StatusOr<intrinsic_proto::world::GeometryComponent>
-GeometryComponentFromRigidBody(const pxr::UsdPhysicsRigidBodyAPI rigid_body,
+GeometryComponentFromRigidBody(const pxr::UsdPhysicsRigidBodyAPI& rigid_body,
                                pxr::UsdGeomXformCache& xform_cache,
                                GeometrySerializer& geometry_serializer);
 
 // Creates a PhysicsComponent from a Usd rigid body by traversing its
 // subtree and collecting all physics info.
 absl::StatusOr<intrinsic_proto::world::PhysicsComponent>
-PhysicsComponentFromRigidBody(const pxr::UsdPhysicsRigidBodyAPI rigid_body);
+PhysicsComponentFromRigidBody(const pxr::UsdPhysicsRigidBodyAPI& rigid_body);
 
 // Converts a UsdGeomGPrim (which is the Usd base-class of all geometry types,
 // like sphere, cube, cylinder, mesh, etc) to a Geometry type.
 // Calls GeometryFromUsdMesh for meshes and GeometryFromUsdPrimitive for
 // primitive shapes.
-absl::StatusOr<Geometry> GeometryFromGprim(const pxr::UsdGeomGprim gprim);
+absl::StatusOr<Geometry> GeometryFromGprim(const pxr::UsdGeomGprim& gprim);
 
 // Converts a UsdGeomMesh to a Geometry type.
 absl::StatusOr<Geometry> GeometryFromUsdMesh(const pxr::UsdGeomMesh& usd_mesh);

@@ -41,11 +41,14 @@
 #include <pxr/usd/usdPhysics/prismaticJoint.h>
 #include <pxr/usd/usdPhysics/revoluteJoint.h>
 #include <pxr/usd/usdPhysics/rigidBodyAPI.h>
+#include <pxr/usd/usdPhysics/tokens.h>
 #include <pxr/usd/usdShade/input.h>
 #include <pxr/usd/usdShade/material.h>
 #include <pxr/usd/usdShade/materialBindingAPI.h>
 
+#include <algorithm>
 #include <limits>
+#include <vector>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -70,19 +73,18 @@ namespace usd {
 namespace {
 
 absl::StatusOr<eigenmath::Vector3d> ParseAxisAttribute(
-    const pxr::UsdAttribute axis_attr) {
+    const pxr::UsdAttribute& axis_attr) {
   pxr::TfToken axis_token;
   INTR_RET_CHECK(axis_attr.Get(&axis_token));
-  std::string axis_string = axis_token.GetString();
-  if (axis_string == "X") {
+  if (axis_token == pxr::UsdPhysicsTokens->x) {
     return eigenmath::Vector3d{1, 0, 0};
-  } else if (axis_string == "Y") {
+  } else if (axis_token == pxr::UsdPhysicsTokens->y) {
     return eigenmath::Vector3d{0, 1, 0};
-  } else if (axis_string == "Z") {
+  } else if (axis_token == pxr::UsdPhysicsTokens->z) {
     return eigenmath::Vector3d{0, 0, 1};
   }
   return absl::InvalidArgumentError(
-      absl::Substitute("unexpected axis $0", axis_string));
+      absl::Substitute("unexpected axis $0", axis_token.GetString()));
 }
 
 Pose3d GetRotatedPose(const eigenmath::Vector3d& original_axis,
@@ -142,7 +144,7 @@ absl::Status ReadMeshPoints(const pxr::UsdGeomMesh& usd_mesh,
 }  // namespace
 
 absl::StatusOr<intrinsic_proto::scene_object::v1::Link> LinkProtoFromRigidBody(
-    const pxr::UsdPhysicsRigidBodyAPI rigid_body,
+    const pxr::UsdPhysicsRigidBodyAPI& rigid_body,
     pxr::UsdGeomXformCache& xform_cache,
     GeometrySerializer& geometry_serializer) {
   intrinsic_proto::scene_object::v1::Link link;
@@ -402,7 +404,7 @@ absl::StatusOr<JointDriveInfo> ParseJointDriveInfo(
 }
 
 absl::StatusOr<intrinsic_proto::world::GeometryComponent>
-GeometryComponentFromRigidBody(const pxr::UsdPhysicsRigidBodyAPI rigid_body,
+GeometryComponentFromRigidBody(const pxr::UsdPhysicsRigidBodyAPI& rigid_body,
                                pxr::UsdGeomXformCache& xform_cache,
                                GeometrySerializer& geometry_serializer) {
   auto geometry_component = GeometryComponent::Create();
@@ -467,8 +469,7 @@ GeometryComponentFromRigidBody(const pxr::UsdPhysicsRigidBodyAPI rigid_body,
       // Note - this traverses up the scene tree and isn't the most efficient.
       // Should be fine because we aren't working with massive scene trees for
       // robot imports.
-      std::string purpose = imageable.ComputePurpose().GetString();
-      if (purpose != "guide") {
+      if (imageable.ComputePurpose() != pxr::UsdGeomTokens->guide) {
         std::string unique_name =
             visual_geometry_namer.GetNameForPrim(child_prim);
         visual_geometry_set.emplace(unique_name, geometry_proto);
@@ -492,7 +493,7 @@ GeometryComponentFromRigidBody(const pxr::UsdPhysicsRigidBodyAPI rigid_body,
 }
 
 absl::StatusOr<intrinsic_proto::world::PhysicsComponent>
-PhysicsComponentFromRigidBody(const pxr::UsdPhysicsRigidBodyAPI rigidBody) {
+PhysicsComponentFromRigidBody(const pxr::UsdPhysicsRigidBodyAPI& rigid_body) {
   // Rigid bodies specify their mass using the UsdPhysicsMassAPI schema.
   // The schema is usually applied right to the body prim, but OpenUSD also
   // allows it to be applied to child collision geometries and accumulated
@@ -506,8 +507,8 @@ PhysicsComponentFromRigidBody(const pxr::UsdPhysicsRigidBodyAPI rigidBody) {
   // https://openusd.org/release/api/usd_physics_page_front.html#usdPhysics_body_mass_properties
 
   auto physics_component = PhysicsComponent::Create();
-  if (rigidBody.GetPrim().HasAPI<pxr::UsdPhysicsMassAPI>()) {
-    const pxr::UsdPhysicsMassAPI massAPI(rigidBody.GetPrim());
+  if (rigid_body.GetPrim().HasAPI<pxr::UsdPhysicsMassAPI>()) {
+    const pxr::UsdPhysicsMassAPI massAPI(rigid_body.GetPrim());
 
     // The attributes below are all optional. If one is not authored and has no
     // schema fallback, the USD default documented at each attribute is kept.
@@ -553,8 +554,8 @@ PhysicsComponentFromRigidBody(const pxr::UsdPhysicsRigidBodyAPI rigidBody) {
     // Mass is given in arbitrary units in USD and must be converted to kg using
     // a conversion given per-stage (defaults to 1).
     Pose3d center_of_mass_pose = CreatePose(principal_axes, center_of_mass);
-    double kg_per_unit =
-        pxr::UsdPhysicsGetStageKilogramsPerUnit(rigidBody.GetPrim().GetStage());
+    double kg_per_unit = pxr::UsdPhysicsGetStageKilogramsPerUnit(
+        rigid_body.GetPrim().GetStage());
     if (has_authored_inertia) {
       // The authored inertia is given in the stage's mass units. Our default
       // inertia is already in kg and must not be converted.
@@ -689,6 +690,7 @@ absl::StatusOr<Mesh> UsdMeshData::CreateMeshWithFaceIndices(
     const pxr::VtArray<int>& indices) {
   // Collect all the subset faces
   Mesh::FaceCollection subset_faces;
+  subset_faces.reserve(indices.size());
   for (int face_index : indices) {
     if (face_index < 0 ||
         static_cast<size_t>(face_index) >= face_vertex_counts_.size()) {
@@ -708,6 +710,7 @@ absl::StatusOr<Mesh> UsdMeshData::CreateMeshWithFaceIndices(
   // `vertex_index_map` maps the original vertex index to the new vertex index.
   absl::flat_hash_map<int, int> vertex_index_map;
   Mesh::VertexCollection vertex_copies;
+  vertex_copies.reserve(std::min(points_.size(), subset_faces.size() * 3));
   for (auto& face : subset_faces) {
     for (int& vertex_index : face) {
       auto it = vertex_index_map.find(vertex_index);
@@ -747,7 +750,7 @@ absl::Status UsdMeshData::TriangulateFace(
 }
 
 absl::StatusOr<Geometry> GeometryFromGprim(
-    const pxr::UsdGeomGprim usd_geometry) {
+    const pxr::UsdGeomGprim& usd_geometry) {
   INTR_RET_CHECK(usd_geometry.GetPrim().IsValid())
       << " cannot convert a USD geometry with invalid prim";
 

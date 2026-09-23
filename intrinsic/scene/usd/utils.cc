@@ -143,7 +143,7 @@ absl::StatusOr<pxr::UsdStageRefPtr> LoadStageFromString(
   return stage;
 }
 
-absl::StatusOr<pxr::UsdPrim> GetRootPrim(const pxr::UsdStageRefPtr stage) {
+absl::StatusOr<pxr::UsdPrim> GetRootPrim(const pxr::UsdStageRefPtr& stage) {
   const pxr::UsdPrim default_prim = stage->GetDefaultPrim();
   if (default_prim.IsValid()) {
     return default_prim;
@@ -407,7 +407,7 @@ std::string GetErrorString(const pxr::TfErrorMark& error_mark) {
   return errors_string;
 }
 
-std::string DumpStage(pxr::UsdStageRefPtr stage) {
+std::string DumpStage(const pxr::UsdStageRefPtr& stage) {
   std::stringstream ss;
   // Print the identifier of the layer the stage was loaded from
   ss << "Root Layer Identifier: " << stage->GetRootLayer()->GetIdentifier()
@@ -422,7 +422,7 @@ std::string DumpStage(pxr::UsdStageRefPtr stage) {
   return ss.str();
 }
 
-std::string DumpPrimitiveRecursive(pxr::UsdPrim prim) {
+std::string DumpPrimitiveRecursive(const pxr::UsdPrim& prim) {
   std::stringstream ss;
   DumpPrimitiveRecursiveInternal(prim, 0, ss);
   return ss.str();
