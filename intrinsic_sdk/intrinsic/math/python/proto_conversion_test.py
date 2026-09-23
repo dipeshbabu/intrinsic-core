@@ -18,6 +18,8 @@ from absl.testing import absltest
 from absl.testing import parameterized
 import hypothesis
 from hypothesis.extra import numpy as np_strategies
+import numpy as np
+
 from intrinsic.icon.proto import cart_space_pb2
 from intrinsic.math.proto import array_pb2
 from intrinsic.math.proto import matrix_pb2
@@ -28,7 +30,6 @@ from intrinsic.math.proto import twist_pb2
 from intrinsic.math.proto import vector3_pb2
 from intrinsic.math.python import data_types
 from intrinsic.math.python import proto_conversion
-import numpy as np
 
 _rng = np.random.RandomState(seed=0)
 
