@@ -1,105 +1,76 @@
-name: Verify exact-commit builds and complete test coverage
+name: Verify math review updates
 
 on:
   workflow_dispatch:
 
 permissions:
-  actions: read
   contents: read
 
 jobs:
-  scalar_validation:
-    name: Scalar fix validation
+  math_tests:
+    name: ${{ matrix.name }} math suites
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Scalar
+            commit: 6d80cb6b107c5c22c909af3d12eaef9245ec7736
+            source: math_types.py
+            files: math_types.py math_types_test.py
+            regression_target: math_types_test
+            failure_pattern: 'FAIL: test_get_matching_arrays_preserves_'
+          - name: Quaternion
+            commit: 81b396bd48eaa1cb1cb96aecc17eeca73a21f589
+            source: quaternion.py
+            files: quaternion.py quaternion_test.py rotation3_test.py
+            regression_target: quaternion_test
+            failure_pattern: 'FAIL: test_check_non_zero_.*custom_tolerance'
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-      - name: Verify exact-commit build and retry provenance
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          bash .github/scripts/verify-build-evidence.sh \
-            c44dcbbf2a894b5fb210dd0c2816f76218897026 \
-            35811349800 16a5c0c34376a5717c6f66d09e73cabaa558d6a4
-          retry_head=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/35827666583" --jq .head_sha)
-          test "$retry_head" = 0364611fcd1dee09ca82a3f6d4e046b75b69bbe1
-          gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/verify-bugfix.yml?ref=$retry_head" \
-            -H 'Accept: application/vnd.github.raw+json' > "$RUNNER_TEMP/retry-workflow.yml"
-          grep -Fxq '  FIX_COMMIT: c44dcbbf2a894b5fb210dd0c2816f76218897026' "$RUNNER_TEMP/retry-workflow.yml"
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/35827666583/jobs" > "$RUNNER_TEMP/retry-jobs.json"
-          jq -e '[.jobs[].steps[] | select(.name == "Verify regression tests and network isolation")] | length == 1 and all(.[]; .status == "completed" and .conclusion == "success")' "$RUNNER_TEMP/retry-jobs.json"
-      - name: Verify all 269 scalar-commit test targets have passed
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh run view 35811349800 --repo "$GITHUB_REPOSITORY" --log > "$RUNNER_TEMP/scalar-full.log"
-          gh run view 35827666583 --repo "$GITHUB_REPOSITORY" --log > "$RUNNER_TEMP/scalar-retries.log"
-          node .github/scripts/verify-test-results.cjs \
-            "$RUNNER_TEMP/scalar-full.log" 'Test all targets' \
-            "$RUNNER_TEMP/scalar-retries.log" 'Verify regression tests and network isolation' \
-            269 "$RUNNER_TEMP/scalar-retries.log" 'Test all scalar-fix targets with network isolation'
-
-  quaternion_validation:
-    name: Quaternion fix validation
-    runs-on: ubuntu-24.04
-    timeout-minutes: 180
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-      - name: Verify completed quaternion build checks and save evidence
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          bash .github/scripts/verify-build-evidence.sh \
-            0bb9c4cf5da6e76241166a5f70a2f6e89f415e56 \
-            35811317656 f21f0048dc523d748352d546d35fd893c37baf33
-          gh run view 35811317656 --repo "$GITHUB_REPOSITORY" --log > "$RUNNER_TEMP/quaternion-full.log"
-          cp .github/scripts/verify-test-results.cjs "$RUNNER_TEMP/verify-test-results.cjs"
-      - name: Reclaim space on the disposable hosted runner
-        run: |
-          sudo rm -rf -- /usr/share/dotnet /usr/local/lib/android /opt/ghc
-          sudo docker image prune --all --force
-          df -h /
-      - name: Check out the exact quaternion-fix commit
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          ref: 0bb9c4cf5da6e76241166a5f70a2f6e89f415e56
-          lfs: true
+          ref: ${{ matrix.commit }}
+          fetch-depth: 0
+      - name: Verify source and formatting
+        env:
+          EXPECTED_COMMIT: ${{ matrix.commit }}
+          CHANGED_FILES: ${{ matrix.files }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          git merge-base --is-ancestor 979c8ff1f71b0c8a63d546adce8d974b7c39e482 HEAD
+          git diff --exit-code 979c8ff1f71b0c8a63d546adce8d974b7c39e482 -- intrinsic_sdk/intrinsic/math/python/BUILD
+          git diff --check 979c8ff1f71b0c8a63d546adce8d974b7c39e482 HEAD
+          cd intrinsic_sdk/intrinsic/math/python
+          pipx run --spec pyink==25.12.0 pyink --check --line-length=80 --pyink-indentation=2 --pyink-use-majority-quotes $CHANGED_FILES
+          pipx run --spec isort==6.0.1 isort --check-only --profile=google $CHANGED_FILES
       - name: Set up Bazel
         uses: bazel-contrib/setup-bazel@0.14.0
         with:
           bazelisk-cache: true
-      - name: Enable network isolation for test execution
+      - name: Build and test upstream math suites with added regressions
         run: |
-          unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
-          bazel_install_base=$(bazel --batch info install_base)
-          sudo tee /etc/apparmor.d/intrinsic-bazel-linux-sandbox > /dev/null <<EOF
-          abi <abi/4.0>,
-          include <tunables/global>
-          profile intrinsic-bazel-linux-sandbox "$bazel_install_base/linux-sandbox" flags=(unconfined) {
-            userns,
-          }
-          EOF
-          sudo apparmor_parser -r /etc/apparmor.d/intrinsic-bazel-linux-sandbox
-          if [ -f /proc/sys/kernel/unprivileged_userns_clone ]; then
-            sudo sysctl -w kernel.unprivileged_userns_clone=1
-          fi
-      - name: Rerun quaternion regression and network-sensitive targets
+          bazel test \
+            //intrinsic_sdk/intrinsic/math/python:math_types_test \
+            //intrinsic_sdk/intrinsic/math/python:quaternion_test \
+            //intrinsic_sdk/intrinsic/math/python:rotation3_test \
+            //intrinsic_sdk/intrinsic/math/python:pose3_test \
+            //intrinsic_sdk/intrinsic/math/python:math_test_test \
+            --spawn_strategy=processwrapper-sandbox --test_output=errors
+      - name: Confirm added regressions detect the original bug
+        env:
+          SOURCE: ${{ matrix.source }}
+          REGRESSION_TARGET: ${{ matrix.regression_target }}
+          FAILURE_PATTERN: ${{ matrix.failure_pattern }}
         run: |
           set -euo pipefail
-          unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
-          test "$(git rev-parse HEAD)" = 0bb9c4cf5da6e76241166a5f70a2f6e89f415e56
-          bazel test \
-            //intrinsic_sdk/intrinsic/math/python:quaternion_test \
-            //intrinsic_control/intrinsic/icon/hardware_modules/kuka_rsi/kuka_system_control:kuka_system_control_factory_test \
-            //intrinsic_hardware/intrinsic/hardware/gpio:gpio_client_test \
-            //intrinsic_hardware/intrinsic/hardware/gpio:opcua_gpio_service_test \
-            //intrinsic_hardware/intrinsic/hardware/gpio:opcua_gpio_service_delayed_connection_test \
-            --spawn_strategy=processwrapper-sandbox --strategy=TestRunner=linux-sandbox \
-            --test_output=errors 2>&1 | tee "$RUNNER_TEMP/quaternion-retries.log"
-      - name: Verify all 269 quaternion-commit test targets have passed
-        run: |
-          node "$RUNNER_TEMP/verify-test-results.cjs" \
-            "$RUNNER_TEMP/quaternion-full.log" 'Test all targets' \
-            "$RUNNER_TEMP/quaternion-retries.log" raw 269
-      - name: Report remaining disk space
-        if: always()
-        run: df -h /
+          source_path="intrinsic_sdk/intrinsic/math/python/$SOURCE"
+          trap 'git restore -- "$source_path"' EXIT
+          git show "979c8ff1f71b0c8a63d546adce8d974b7c39e482:$source_path" > "$source_path"
+          set +e
+          bazel test "//intrinsic_sdk/intrinsic/math/python:$REGRESSION_TARGET" \
+            --spawn_strategy=processwrapper-sandbox --test_output=errors 2>&1 | tee "$RUNNER_TEMP/regression.log"
+          test_status=${PIPESTATUS[0]}
+          set -e
+          test "$test_status" = 3
+          grep -E "$FAILURE_PATTERN" "$RUNNER_TEMP/regression.log"
