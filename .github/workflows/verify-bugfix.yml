@@ -1,4 +1,4 @@
-name: Verify math review updates
+name: Validate functional fixes before opening PRs
 
 on:
   workflow_dispatch:
@@ -7,70 +7,93 @@ permissions:
   contents: read
 
 jobs:
-  math_tests:
-    name: ${{ matrix.name }} math suites
+  validation:
+    name: Complete build and tests for each independent fix
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Scalar
-            commit: 3196f4e6a6e17b33e5b73f2310c58f0e207fef39
-            source: math_types.py
-            files: math_types.py math_types_test.py
-            regression_target: math_types_test
-            failure_pattern: 'FAIL: test_get_matching_arrays_preserves_'
-          - name: Quaternion
-            commit: 81b396bd48eaa1cb1cb96aecc17eeca73a21f589
-            source: quaternion.py
-            files: quaternion.py quaternion_test.py rotation3_test.py
-            regression_target: quaternion_test
-            failure_pattern: 'FAIL: test_check_non_zero_.*custom_tolerance'
+    timeout-minutes: 360
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Check out validation tools
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Save validation script outside source checkout
+        run: cp .github/scripts/validate-functional-regression.sh "$RUNNER_TEMP/validate-functional-regression.sh"
+      - name: Check out pose serialization fix
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          ref: ${{ matrix.commit }}
+          ref: 2f0147770bd48cba5a8ee551a8617c117a7c5517
           fetch-depth: 0
-      - name: Verify source and formatting
-        env:
-          EXPECTED_COMMIT: ${{ matrix.commit }}
-          CHANGED_FILES: ${{ matrix.files }}
+          lfs: true
+      - name: Reclaim space on disposable hosted runner
         run: |
-          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
-          git merge-base --is-ancestor 979c8ff1f71b0c8a63d546adce8d974b7c39e482 HEAD
-          git diff --exit-code 979c8ff1f71b0c8a63d546adce8d974b7c39e482 -- intrinsic_sdk/intrinsic/math/python/BUILD
-          git diff --check 979c8ff1f71b0c8a63d546adce8d974b7c39e482 HEAD
-          cd intrinsic_sdk/intrinsic/math/python
-          pipx run --spec pyink==25.12.0 pyink --check --line-length=80 --pyink-indentation=2 --pyink-use-majority-quotes $CHANGED_FILES
-          pipx run --spec isort==6.0.1 isort --check-only --profile=google $CHANGED_FILES
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          sudo rm -rf -- /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          sudo docker image prune --all --force
+          df -h /
       - name: Set up Bazel
         uses: bazel-contrib/setup-bazel@0.14.0
         with:
           bazelisk-cache: true
-      - name: Build and test upstream math suites with added regressions
+      - name: Enable isolated test networking
         run: |
-          bazel test \
-            //intrinsic_sdk/intrinsic/math/python:math_types_test \
-            //intrinsic_sdk/intrinsic/math/python:quaternion_test \
+          unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
+          bazel_install_base=$(bazel --batch info install_base)
+          sudo tee /etc/apparmor.d/intrinsic-bazel-linux-sandbox > /dev/null <<EOF
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile intrinsic-bazel-linux-sandbox "$bazel_install_base/linux-sandbox" flags=(unconfined) {
+            userns,
+          }
+          EOF
+          sudo apparmor_parser -r /etc/apparmor.d/intrinsic-bazel-linux-sandbox
+          if [ -f /proc/sys/kernel/unprivileged_userns_clone ]; then
+            sudo sysctl -w kernel.unprivileged_userns_clone=1
+          fi
+      - name: Verify pose fix and reproduce original failure
+        run: |
+          bash "$RUNNER_TEMP/validate-functional-regression.sh" \
+            2f0147770bd48cba5a8ee551a8617c117a7c5517 proto_conversion.py \
+            'ERROR: test_pose_to_proto_normalizes_near_unit_quaternion' \
+            //intrinsic_sdk/intrinsic/math/python:proto_conversion_test
+      - name: Build all targets for pose fix
+        run: |
+          unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
+          bazel build //... --spawn_strategy=processwrapper-sandbox
+      - name: Build published CI artifacts for pose fix
+        run: |
+          unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
+          bazel build //intrinsic_runtime:intrinsic_base //intrinsic/tools/inctl:inctl_external \
+            --spawn_strategy=processwrapper-sandbox
+      - name: Test all targets for pose fix
+        run: |
+          unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
+          bazel test //... --spawn_strategy=processwrapper-sandbox \
+            --strategy=TestRunner=linux-sandbox --test_output=errors
+      - name: Check out reflection validation fix
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: cf7c610c5dcc98422d6d01dab1173f5c1f8dad14
+          fetch-depth: 0
+          lfs: true
+      - name: Verify reflection fix and reproduce original failure
+        run: |
+          bash "$RUNNER_TEMP/validate-functional-regression.sh" \
+            cf7c610c5dcc98422d6d01dab1173f5c1f8dad14 rotation3.py \
+            'FAIL: test_from_matrix.*rejects_reflection' \
             //intrinsic_sdk/intrinsic/math/python:rotation3_test \
-            //intrinsic_sdk/intrinsic/math/python:pose3_test \
-            //intrinsic_sdk/intrinsic/math/python:math_test_test \
-            --spawn_strategy=processwrapper-sandbox --test_output=errors
-      - name: Confirm added regressions detect the original bug
-        env:
-          SOURCE: ${{ matrix.source }}
-          REGRESSION_TARGET: ${{ matrix.regression_target }}
-          FAILURE_PATTERN: ${{ matrix.failure_pattern }}
+            //intrinsic_sdk/intrinsic/math/python:pose3_test
+      - name: Build all targets for reflection fix
         run: |
-          set -euo pipefail
-          source_path="intrinsic_sdk/intrinsic/math/python/$SOURCE"
-          trap 'git restore -- "$source_path"' EXIT
-          git show "979c8ff1f71b0c8a63d546adce8d974b7c39e482:$source_path" > "$source_path"
-          set +e
-          bazel test "//intrinsic_sdk/intrinsic/math/python:$REGRESSION_TARGET" \
-            --spawn_strategy=processwrapper-sandbox --test_output=errors 2>&1 | tee "$RUNNER_TEMP/regression.log"
-          test_status=${PIPESTATUS[0]}
-          set -e
-          test "$test_status" = 3
-          grep -E "$FAILURE_PATTERN" "$RUNNER_TEMP/regression.log"
+          unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
+          bazel build //... --spawn_strategy=processwrapper-sandbox
+      - name: Build published CI artifacts for reflection fix
+        run: |
+          unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
+          bazel build //intrinsic_runtime:intrinsic_base //intrinsic/tools/inctl:inctl_external \
+            --spawn_strategy=processwrapper-sandbox
+      - name: Test all targets for reflection fix
+        run: |
+          unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
+          bazel test //... --spawn_strategy=processwrapper-sandbox \
+            --strategy=TestRunner=linux-sandbox --test_output=errors
+      - name: Report remaining disk space
+        if: always()
+        run: df -h /
