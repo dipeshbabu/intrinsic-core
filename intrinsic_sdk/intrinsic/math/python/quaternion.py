@@ -400,10 +400,7 @@ class Quaternion(object):
     Raises:
       ValueError: If |q| <= norm_epsilon.
     """
-    if (
-        np.linalg.norm(self._xyzw)
-        <= math_types.DEFAULT_ATOL_VALUE_FOR_NP_IS_CLOSE
-    ):
+    if np.linalg.norm(self._xyzw) <= norm_epsilon:
       raise ValueError(
           self._zero_magnitude_message(
               norm_epsilon=norm_epsilon, err_msg=err_msg

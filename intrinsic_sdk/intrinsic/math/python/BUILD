@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("//bazel:python.bzl", "py_library")
+load("//bazel:python.bzl", "py_library", "py_test")
 
 package(default_visibility = [
     "//visibility:public",
@@ -105,6 +105,16 @@ py_library(
         ":math_types",
         ":vector_util",
         "@ai_intrinsic_sdks_pip_deps//numpy",
+    ],
+)
+
+py_test(
+    name = "quaternion_test",
+    size = "small",
+    srcs = ["quaternion_test.py"],
+    deps = [
+        ":quaternion",
+        ":rotation3",
     ],
 )
 
