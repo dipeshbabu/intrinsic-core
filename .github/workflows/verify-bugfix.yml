@@ -6,13 +6,31 @@ on:
       - ci/validate-scalar-conversion
 
 permissions:
+  actions: read
   contents: read
+
+env:
+  FIX_COMMIT: c44dcbbf2a894b5fb210dd0c2816f76218897026
+  BUILD_RUN_ID: '35811349800'
+  BUILD_RUN_COMMIT: 16a5c0c34376a5717c6f66d09e73cabaa558d6a4
 
 jobs:
   validate:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
+      - name: Verify completed build checks for this exact source commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          actual_head=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" --jq .head_sha)
+          test "$actual_head" = "$BUILD_RUN_COMMIT"
+          gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/verify-bugfix.yml?ref=$BUILD_RUN_COMMIT" \
+            -H 'Accept: application/vnd.github.raw+json' > "$RUNNER_TEMP/prior-build-workflow.yml"
+          grep -Fxq "          ref: $FIX_COMMIT" "$RUNNER_TEMP/prior-build-workflow.yml"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID/jobs" > "$RUNNER_TEMP/prior-build-jobs.json"
+          jq -e '[.jobs[].steps[] | select(.name == "Regression tests" or .name == "Build the published CI artifacts" or .name == "Build all targets")] | length == 3 and all(.[]; .status == "completed" and .conclusion == "success")' "$RUNNER_TEMP/prior-build-jobs.json"
+          echo "Verified successful regression, artifact, and full-build checks: https://github.com/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID"
       - name: Reclaim space on the disposable hosted runner
         run: |
           df -h /
@@ -22,28 +40,41 @@ jobs:
       - name: Check out the exact fix commit
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          ref: c44dcbbf2a894b5fb210dd0c2816f76218897026
+          ref: ${{ env.FIX_COMMIT }}
           lfs: true
       - name: Set up Bazel
         uses: bazel-contrib/setup-bazel@0.14.0
         with:
           bazelisk-cache: true
-      - name: Regression tests
+      - name: Enable the Bazel Linux sandbox
         run: |
           unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
-          bazel test //intrinsic_sdk/intrinsic/math/python:math_types_test --test_output=errors
-      - name: Build the published CI artifacts
+          bazel_install_base=$(bazel --batch info install_base)
+          sudo tee /etc/apparmor.d/intrinsic-bazel-linux-sandbox > /dev/null <<EOF
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile intrinsic-bazel-linux-sandbox "$bazel_install_base/linux-sandbox" flags=(unconfined) {
+            userns,
+          }
+          EOF
+          sudo apparmor_parser -r /etc/apparmor.d/intrinsic-bazel-linux-sandbox
+          if [ -f /proc/sys/kernel/unprivileged_userns_clone ]; then
+            sudo sysctl -w kernel.unprivileged_userns_clone=1
+          fi
+      - name: Verify regression tests and network isolation
         run: |
           unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
-          bazel build //intrinsic_runtime:intrinsic_base //intrinsic/tools/inctl:inctl_external
-      - name: Build all targets
+          bazel test \
+            //intrinsic_sdk/intrinsic/math/python:math_types_test \
+            //intrinsic_control/intrinsic/icon/hardware_modules/kuka_rsi/kuka_system_control:kuka_system_control_factory_test \
+            //intrinsic_hardware/intrinsic/hardware/gpio:gpio_client_test \
+            //intrinsic_hardware/intrinsic/hardware/gpio:opcua_gpio_service_test \
+            //intrinsic_hardware/intrinsic/hardware/gpio:opcua_gpio_service_delayed_connection_test \
+            --spawn_strategy=linux-sandbox --strategy=TestRunner=linux-sandbox --test_output=errors
+      - name: Test all targets with network isolation
         run: |
           unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
-          bazel build //...
-      - name: Test all targets
-        run: |
-          unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
-          bazel test //... --test_output=errors
+          bazel test //... --spawn_strategy=linux-sandbox --strategy=TestRunner=linux-sandbox --test_output=errors
       - name: Report remaining disk space
         if: always()
         run: df -h /
