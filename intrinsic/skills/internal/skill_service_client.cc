@@ -305,15 +305,6 @@ SkillServiceClient::Predict(
   return Predict(request, timeout, request.context());
 }
 
-absl::Status SkillServiceClient::TryCancelPredict() {
-  absl::MutexLock l(&predict_mutex_);
-  if (!predict_context_) {
-    return absl::InternalError("Predict context is not present.");
-  }
-  predict_context_->TryCancel();
-  return absl::OkStatus();
-}
-
 absl::StatusOr<intrinsic_proto::skills::PredictResult>
 SkillServiceClient::Predict(
     const intrinsic_proto::skills::PredictRequest& request,

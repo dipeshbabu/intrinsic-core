@@ -54,12 +54,6 @@ class SkillServiceClientInterface {
       absl::string_view internal_data, std::optional<absl::Duration> timeout,
       const intrinsic_proto::data_logger::Context& context) = 0;
 
-  // Try to cancel a currently running call to Predict().
-  // Predict internally uses an asynchronous call, but blocks on that. This
-  // method issues a cancellation request, which will cause Predict to fail with
-  // a cancellation error.
-  virtual absl::Status TryCancelPredict() = 0;
-
   // Invokes the GetFootprint rpc.
   //
   // If timeout is omitted, a default timeout will be used.
