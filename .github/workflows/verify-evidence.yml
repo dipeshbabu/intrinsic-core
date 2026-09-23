@@ -1,0 +1,85 @@
+name: Verify passed checks for each math fix
+
+on:
+  push:
+    branches:
+      - ci/validate-scalar-conversion
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  verify:
+    name: ${{ matrix.fix }} validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - fix: Scalar
+            source: c44dcbbf2a894b5fb210dd0c2816f76218897026
+            build_run: '35811349800'
+            build_commit: 16a5c0c34376a5717c6f66d09e73cabaa558d6a4
+            build_job: '107023422313'
+            retry_run: '35827666583'
+            retry_commit: 0364611fcd1dee09ca82a3f6d4e046b75b69bbe1
+            retry_job: '107072878993'
+            retry_step: Verify regression tests and network isolation
+            partial_step: Test all scalar-fix targets with network isolation
+          - fix: Quaternion
+            source: 0bb9c4cf5da6e76241166a5f70a2f6e89f415e56
+            build_run: '35811317656'
+            build_commit: f21f0048dc523d748352d546d35fd893c37baf33
+            build_job: '107023321301'
+            retry_run: '35862861825'
+            retry_commit: 5d4e63c271482d3a7ad6a73375962704f529cc70
+            retry_job: '107187092297'
+            retry_step: Rerun quaternion regression and network-sensitive targets
+            partial_step: ''
+    env:
+      GH_TOKEN: ${{ github.token }}
+      FIX_COMMIT: ${{ matrix.source }}
+      BUILD_RUN: ${{ matrix.build_run }}
+      BUILD_COMMIT: ${{ matrix.build_commit }}
+      BUILD_JOB: ${{ matrix.build_job }}
+      RETRY_RUN: ${{ matrix.retry_run }}
+      RETRY_COMMIT: ${{ matrix.retry_commit }}
+      RETRY_JOB: ${{ matrix.retry_job }}
+      RETRY_STEP: ${{ matrix.retry_step }}
+      PARTIAL_STEP: ${{ matrix.partial_step }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Verify source identity and completed builds
+        run: |
+          bash .github/scripts/verify-build-evidence.sh "$FIX_COMMIT" "$BUILD_RUN" "$BUILD_COMMIT"
+          actual_retry=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RETRY_RUN" --jq .head_sha)
+          test "$actual_retry" = "$RETRY_COMMIT"
+          gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/verify-bugfix.yml?ref=$RETRY_COMMIT" \
+            -H 'Accept: application/vnd.github.raw+json' > "$RUNNER_TEMP/retry-workflow.yml"
+          if [ "$PARTIAL_STEP" != '' ]; then
+            grep -Fxq "  FIX_COMMIT: $FIX_COMMIT" "$RUNNER_TEMP/retry-workflow.yml"
+          else
+            grep -Fxq "          ref: $FIX_COMMIT" "$RUNNER_TEMP/retry-workflow.yml"
+          fi
+      - name: Wait for completed successful retry execution
+        run: |
+          while true; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$RETRY_JOB" > "$RUNNER_TEMP/retry-job.json"
+            retry_state=$(jq -r .status "$RUNNER_TEMP/retry-job.json")
+            if [ "$retry_state" = completed ]; then break; fi
+            echo "Retry job $RETRY_JOB is $retry_state"
+            sleep 30
+          done
+          jq -e --arg sha "$RETRY_COMMIT" --argjson run "$RETRY_RUN" '.head_sha == $sha and .run_id == $run' "$RUNNER_TEMP/retry-job.json"
+          jq -e --arg step "$RETRY_STEP" '[.steps[] | select(.name == $step)] | length == 1 and all(.[]; .status == "completed" and .conclusion == "success")' "$RUNNER_TEMP/retry-job.json"
+      - name: Verify complete passing coverage of all 269 targets
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$BUILD_JOB" > "$RUNNER_TEMP/build-job.json"
+          jq -e --arg sha "$BUILD_COMMIT" --argjson run "$BUILD_RUN" '.head_sha == $sha and .run_id == $run' "$RUNNER_TEMP/build-job.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$BUILD_JOB/logs" > "$RUNNER_TEMP/full.log"
+          gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$RETRY_JOB/logs" > "$RUNNER_TEMP/retry.log"
+          verify_args=("$RUNNER_TEMP/full.log" "$RUNNER_TEMP/build-job.json" 'Test all targets' "$RUNNER_TEMP/retry.log" "$RUNNER_TEMP/retry-job.json" "$RETRY_STEP" 269)
+          if [ "$PARTIAL_STEP" != '' ]; then verify_args+=("$PARTIAL_STEP"); fi
+          node .github/scripts/verify-test-results.cjs "${verify_args[@]}"

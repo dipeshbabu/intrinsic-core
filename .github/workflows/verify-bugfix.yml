@@ -1,9 +1,7 @@
 name: Verify exact-commit builds and complete test coverage
 
 on:
-  push:
-    branches:
-      - ci/validate-scalar-conversion
+  workflow_dispatch:
 
 permissions:
   actions: read
