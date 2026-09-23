@@ -502,11 +502,12 @@ class MoveRobotFixtureTest
       intrinsic_proto::skills::MoveRobotParams const& params,
       eigenmath::VectorNd const& initial,
       MoveRobotTestParams const& test_params = MoveRobotTestParams(),
-      bool expect_success = true, absl::string_view internal_data = "") {
+      bool expect_success = true) {
     INTR_ASSIGN_OR_RETURN(auto skill_and_equipment,
                           PrepareMoveRobotTest(initial, test_params));
 
-    const ExecuteRequest execute_request(std::string(internal_data), params);
+    const ExecuteRequest execute_request =
+        skill_test_factory_.MakeExecuteRequest(params);
     auto execute_context = skill_test_factory_.MakeExecuteContext({
         .equipment_pack = skill_and_equipment.equipment,
         .world_id = std::string(test_params.world_id),
@@ -545,7 +546,7 @@ class MoveRobotFixtureTest
   // modified from the initial state created during SetUp().
   absl::Status PreviewMoveRobotTest(
       intrinsic_proto::skills::MoveRobotParams const& params,
-      eigenmath::VectorNd const& initial, absl::string_view internal_data = "",
+      eigenmath::VectorNd const& initial,
       absl::string_view world_id = "preview_test_world") {
     MoveRobotTestParams test_params{
         .world_id = world_id,
@@ -556,7 +557,8 @@ class MoveRobotFixtureTest
     INTR_ASSIGN_OR_RETURN(auto skill_and_equipment,
                           PrepareMoveRobotTest(initial, test_params));
 
-    PreviewRequest preview_request(std::string(internal_data), params);
+    PreviewRequest preview_request =
+        skill_test_factory_.MakePreviewRequest(params);
     auto preview_context = skill_test_factory_.MakePreviewContext({
         .equipment_pack = skill_and_equipment.equipment,
         .world_id = std::string(world_id),
@@ -675,7 +677,8 @@ class MoveRobotFixtureTest
         .object_world_service = world_service_->NewObjectStub(),
     });
 
-    GetFootprintRequest footprint_request(/*internal_data=*/"", params);
+    GetFootprintRequest footprint_request =
+        skill_test_factory_.MakeGetFootprintRequest(params);
     auto footprint_context = skill_test_factory_.MakeGetFootprintContext({
         .equipment_pack = skill_and_equipment.equipment,
         .world_id = std::string(world_id),
@@ -688,7 +691,8 @@ class MoveRobotFixtureTest
             ->GetFootprint(footprint_request, *footprint_context)
             .status());
 
-    ExecuteRequest execute_request(/*internal_data=*/"", params);
+    ExecuteRequest execute_request =
+        skill_test_factory_.MakeExecuteRequest(params);
 
     intrinsic_proto::skills::MoveRobotReturnValue return_value;
     INTR_RETURN_IF_ERROR(ExecuteSkill(*skill_and_equipment.skill,
@@ -871,7 +875,8 @@ TEST_P(MoveRobotFixtureTest, ExecutionCanBeCancelled) {
     EXPECT_OK(canceller.Cancel());
   });
 
-  ExecuteRequest execute_request(/*internal_data=*/"", params);
+  ExecuteRequest execute_request =
+      skill_test_factory_.MakeExecuteRequest(params);
   auto execute_context = skill_test_factory_.MakeExecuteContext({
       .canceller = &canceller,
       .equipment_pack = skill_and_equipment.equipment,
@@ -1084,7 +1089,7 @@ TEST_P(MoveRobotFixtureTest, PreviewWorksWithValidMotionSegment) {
   intrinsic_proto::skills::MoveRobotParams params = CreateJointTargetParams();
   eigenmath::VectorNd initial(6);
   initial << -0.10, 0.48, -1.36, -0.77, 0.83, -1.0;
-  ASSERT_OK(PreviewMoveRobotTest(params, initial, "random_non_proto"));
+  ASSERT_OK(PreviewMoveRobotTest(params, initial));
 }
 
 TEST_P(MoveRobotFixtureTest, ComputePlanWorksWithNormalizedQuaternionRounded) {
@@ -1247,7 +1252,6 @@ TEST_P(MoveRobotFixtureTest, PreviewFailsForInvalidQuaternion) {
 
 TEST_P(MoveRobotFixtureTest, FootprintChoosesArmPartFromParams) {
   intrinsic_proto::skills::MoveRobotParams params = CreateJointTargetParams();
-  constexpr absl::string_view kInternalData = "skilldata";
 
   EquipmentPack equipment;
   ASSERT_OK(equipment.Add(
@@ -1269,7 +1273,8 @@ TEST_P(MoveRobotFixtureTest, FootprintChoosesArmPartFromParams) {
       std::make_unique<icon::FakeChannelPassThroughFactory>(
           std::move(channel_fake)));
 
-  GetFootprintRequest request(std::string(kInternalData), params);
+  GetFootprintRequest request =
+      skill_test_factory_.MakeGetFootprintRequest(params);
   auto context = skill_test_factory_.MakeGetFootprintContext({
       .equipment_pack = equipment,
       .world_id = std::string(kOriginalWorldId),
@@ -1292,7 +1297,6 @@ TEST_P(MoveRobotFixtureTest, FootprintChoosesArmPartFromParams) {
 TEST_P(MoveRobotFixtureTest,
        FootprintUsesArmObjectFromEquipmentIfParamIsEmpty) {
   intrinsic_proto::skills::MoveRobotParams params = CreateJointTargetParams();
-  constexpr absl::string_view kInternalData = "skilldata";
 
   EquipmentPack equipment;
   ASSERT_OK(equipment.Add(
@@ -1310,7 +1314,8 @@ TEST_P(MoveRobotFixtureTest,
       std::make_unique<icon::FakeChannelPassThroughFactory>(
           std::move(channel_fake)));
 
-  GetFootprintRequest request(std::string(kInternalData), params);
+  GetFootprintRequest request =
+      skill_test_factory_.MakeGetFootprintRequest(params);
   auto context2 = skill_test_factory_.MakeGetFootprintContext({
       .equipment_pack = equipment,
       .world_id = std::string(kOriginalWorldId),
@@ -1343,7 +1348,8 @@ TEST_P(MoveRobotFixtureTest, FootprintCachesPlanInSkillData) {
   ASSERT_OK_AND_ASSIGN(auto skill_and_equipment,
                        PrepareMoveRobotTest(initial, test_params));
 
-  GetFootprintRequest footprint_request(/*internal_data=*/"", params);
+  GetFootprintRequest footprint_request =
+      skill_test_factory_.MakeGetFootprintRequest(params);
   auto footprint_context = skill_test_factory_.MakeGetFootprintContext({
       .equipment_pack = skill_and_equipment.equipment,
       .world_id = std::string(test_params.world_id),
@@ -1363,7 +1369,8 @@ TEST_P(MoveRobotFixtureTest, FootprintCachesPlanInSkillData) {
   ASSERT_TRUE(cached_plan.has_value());
   EXPECT_TRUE(cached_plan->execution_plan().has_planned_trajectory());
 
-  ExecuteRequest execute_request(/*internal_data=*/"", params);
+  ExecuteRequest execute_request =
+      skill_test_factory_.MakeExecuteRequest(params);
   auto execute_context = skill_test_factory_.MakeExecuteContext({
       .equipment_pack = skill_and_equipment.equipment,
       .world_id = std::string(test_params.world_id),
@@ -1401,9 +1408,7 @@ TEST_P(MoveRobotFixtureTest, ExecuteClearsStaleLockMotionIdOnReplan) {
 
   ASSERT_OK_AND_ASSIGN(
       const intrinsic_proto::skills::MoveRobotReturnValue return_value,
-      ExecuteMoveRobotTest(params, initial, MoveRobotTestParams(),
-                           /*expect_success=*/true,
-                           internal_data_proto.SerializeAsString()));
+      ExecuteMoveRobotTest(params, initial));
   EXPECT_FALSE(return_value.has_lock_motion_id());
 }
 TEST_P(MoveRobotFixtureTest, ComputePlanWorksWithSmallJointLimitViolation) {

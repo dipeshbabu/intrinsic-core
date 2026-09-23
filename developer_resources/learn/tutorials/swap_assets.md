@@ -1,10 +1,10 @@
 # Swap Assets
 
-The purpose of this tutorial is to illustrate the various ways to swap out Assets in a [Solution](../glossary/intrinsic_terms.md#solution). We will first use the CLI to swap out a software Skill using *inctl*. We will then replace the standard UR [robot](../glossary/general_terms.md#robot) with the bundled KR10-R1100-2 by altering the Bazel build rules.
+The purpose of this tutorial is to illustrate the various ways to swap out Assets in a [Solution](../glossary/intrinsic_terms.md#solution). We will first use the CLI to swap out a software Skill using *inctl*. We will then replace the standard UR [robot](../glossary/general_terms.md#robot) with the bundled KUKA KR10-R1100-2 by altering the Bazel build rules.
 
 ## Prerequisites
 
-If you haven't already, follow [Getting started](getting_started.md) to fetch the sources for the Intrinsic [OMTS](../glossary/intrinsic_terms.md#open-machine-tending-solution-omts) Solution and start it.
+If you haven't already, follow [Getting started](getting_started.md) to fetch the sources for the [Open Machine Tending Solution (OMTS)](../glossary/intrinsic_terms.md#open-machine-tending-solution-omts) Solution and start it.
 
 ## Part 1: Swap a software [Asset](../glossary/intrinsic_terms.md#asset)
 
@@ -167,7 +167,7 @@ cp ~/intrinsic-core/intrinsic_control/intrinsic/icon/hardware_modules/kuka_rsi/k
   kuka_rsi_config.textproto
 ```
 
-3. We have provided a configuration for ICON's real-time control service that works with the KR10. To learn more about how ICON communicates with the hardware module, review the differences between the configurations:
+3. We have provided a configuration for ICON's real-time control service that works with the KUKA KR10. To learn more about how ICON communicates with the hardware module, review the differences between the configurations:
 
 
 ```bash

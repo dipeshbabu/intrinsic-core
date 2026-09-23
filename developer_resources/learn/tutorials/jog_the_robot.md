@@ -4,7 +4,7 @@ Follow these instructions to jog (manually move) a real or simulated [robot](../
 
 ## Prerequisites
 
-If you haven't already, follow [Getting started](getting_started.md) to fetch the sources for the Intrinsic [OMTS](../glossary/intrinsic_terms.md#open-machine-tending-solution-omts) [Solution](../glossary/intrinsic_terms.md#solution) and start it, and open [RViz or Gazebo](visualize_the_robot.md) to visualize the robot.
+If you haven't already, follow [Getting started](getting_started.md) to fetch the sources for [Open Machine Tending Solution (OMTS)](../glossary/intrinsic_terms.md#open-machine-tending-solution-omts) [Solution](../glossary/intrinsic_terms.md#solution) and start it, and open [RViz or Gazebo](visualize_the_robot.md) to visualize the robot.
 
 Verify that the Solution is reachable by listing the [Asset](../glossary/intrinsic_terms.md#asset) instances:
 

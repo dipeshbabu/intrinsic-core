@@ -484,6 +484,17 @@ cc_grpc_library(
     deps = [":camera_config_service_cc_proto"],
 )
 
+py_proto_library(
+    name = "camera_config_service_py_pb2",
+    deps = [":camera_config_service_proto"],
+)
+
+py_grpc_library(
+    name = "camera_config_service_py_pb2_grpc",
+    srcs = [":camera_config_service_proto"],
+    deps = [":camera_config_service_py_pb2"],
+)
+
 proto_library(
     name = "sensor_image_proto",
     srcs = ["sensor_image.proto"],

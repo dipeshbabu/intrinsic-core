@@ -18,17 +18,21 @@
 #include <pxr/base/gf/quatd.h>
 #include <pxr/base/gf/rotation.h>
 #include <pxr/base/plug/registry.h>
+#include <pxr/base/vt/value.h>
 #include <pxr/usd/usd/attribute.h>
 #include <pxr/usd/usd/primRange.h>
 #include <pxr/usd/usd/property.h>
 #include <pxr/usd/usd/relationship.h>
 #include <pxr/usd/usdGeom/imageable.h>
 
+#include <cmath>
 #include <filesystem>
 #include <sstream>
 #include <string>
 
 #include "absl/log/log.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/substitute.h"
 #include "intrinsic/util/status/ret_check.h"
 #include "tools/cpp/runfiles/runfiles.h"
@@ -39,6 +43,10 @@ namespace fs = std::filesystem;
 using bazel::tools::cpp::runfiles::Runfiles;
 
 namespace {
+
+// Matrices with a determinant below this magnitude are considered singular and
+// cannot be inverted with reasonable numeric accuracy.
+constexpr double kSingularMatrixTolerance = 1e-12;
 
 void DumpPrimitiveRecursiveInternal(pxr::UsdPrim prim, int depth,
                                     std::stringstream& ss) {
@@ -209,7 +217,7 @@ absl::StatusOr<intrinsic::Pose3d> ExtractPose(
          "transform: "
       << transform;
 
-  return Pose3d(ConvertQuat(transform.ExtractRotationQuat()),
+  return Pose3d(ConvertQuat(transform.ExtractRotationQuat()).normalized(),
                 ConvertVector(translation));
 }
 
@@ -235,8 +243,12 @@ absl::StatusOr<intrinsic::Pose3d> GetRelativePose(
   // it requires that prim1 is a child of prim2.
   pxr::GfMatrix4d prim1_transform = xform_cache.GetLocalToWorldTransform(prim1);
   pxr::GfMatrix4d prim2_transform = xform_cache.GetLocalToWorldTransform(prim2);
-  pxr::GfMatrix4d relative_transform =
-      GetRelativeTransform(prim1_transform, prim2_transform);
+  INTR_ASSIGN_OR_RETURN(
+      pxr::GfMatrix4d relative_transform,
+      GetRelativeTransform(prim1_transform, prim2_transform),
+      _ << absl::Substitute("while getting the pose of '$0' relative to '$1'",
+                            prim1.GetPath().GetString(),
+                            prim2.GetPath().GetString()));
   INTR_ASSIGN_OR_RETURN(
       Pose3d relative_pose, ExtractPose(relative_transform),
       _ << absl::Substitute("while getting the pose of '$0' relative to '$1'",
@@ -252,18 +264,33 @@ absl::StatusOr<eigenmath::Matrix4d> GetRelativeTransform(
   // it requires that prim1 is a child of prim2.
   pxr::GfMatrix4d prim1_transform = xform_cache.GetLocalToWorldTransform(prim1);
   pxr::GfMatrix4d prim2_transform = xform_cache.GetLocalToWorldTransform(prim2);
-  auto relative_transform =
-      GetRelativeTransform(prim1_transform, prim2_transform);
+  INTR_ASSIGN_OR_RETURN(
+      pxr::GfMatrix4d relative_transform,
+      GetRelativeTransform(prim1_transform, prim2_transform),
+      _ << absl::Substitute(
+          "while getting the transform of '$0' relative to '$1'",
+          prim1.GetPath().GetString(), prim2.GetPath().GetString()));
   return ConvertMatrix4d(relative_transform);
 }
 
-pxr::GfMatrix4d GetRelativeTransform(const pxr::GfMatrix4d& mat_a,
-                                     const pxr::GfMatrix4d& mat_b) {
+absl::StatusOr<pxr::GfMatrix4d> GetRelativeTransform(
+    const pxr::GfMatrix4d& mat_a, const pxr::GfMatrix4d& mat_b) {
   // The transform we want is: MatA * MatB^-1
   // v*(MatA * MatB^-1) transforms v from A's space to B's space.
   // It is this way instead of MatB^-1*MatA*v because matrices in
   // OpenUSD are row-major order and are meant to post-multiply vectors.
-  return mat_a * mat_b.GetInverse();
+  //
+  // `GetInverse` does not fail for singular matrices. It returns a matrix with
+  // all values set to FLT_MAX instead, so the determinant is checked here.
+  double determinant = 0.0;
+  const pxr::GfMatrix4d inverse_b = mat_b.GetInverse(&determinant);
+  if (std::abs(determinant) < kSingularMatrixTolerance) {
+    std::stringstream matrix_string;
+    matrix_string << mat_b;
+    return absl::InvalidArgumentError(absl::Substitute(
+        "Cannot invert the singular transform matrix $0", matrix_string.str()));
+  }
+  return mat_a * inverse_b;
 }
 
 Pose3d ConvertedToMeters(const Pose3d& pose, double meters_per_unit) {
@@ -323,6 +350,27 @@ std::optional<pxr::UsdPhysicsRigidBodyAPI> GetParentRigidBody(
     }
   }
   return std::nullopt;
+}
+
+absl::StatusOr<double> GetDoubleOrFloat(const pxr::UsdAttribute& attr) {
+  if (!attr.IsValid()) {
+    return absl::InvalidArgumentError("Cannot read an invalid USD attribute.");
+  }
+  pxr::VtValue value;
+  if (!attr.Get(&value)) {
+    return absl::InvalidArgumentError(absl::Substitute(
+        "Failed to read attribute $0", attr.GetPath().GetString()));
+  }
+  if (value.IsHolding<double>()) {
+    return value.UncheckedGet<double>();
+  }
+  if (value.IsHolding<float>()) {
+    return value.UncheckedGet<float>();
+  }
+  return absl::InvalidArgumentError(
+      absl::Substitute("Attribute $0 holds type '$1', but a double or float "
+                       "value was expected",
+                       attr.GetPath().GetString(), value.GetTypeName()));
 }
 
 bool IsMarkedInvisible(const pxr::UsdPrim& prim) {

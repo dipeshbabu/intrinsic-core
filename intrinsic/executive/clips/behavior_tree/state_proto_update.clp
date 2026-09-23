@@ -14,7 +14,8 @@
 
 ; State proto updates.
 ;
-; Rules to update the RunMetadata state proto on state updates.
+; Rules to update the RunMetadata state proto and the Operation proto on state
+; updates.
 
 ; Requires:
 ; - behavior_tree.clp: general behavior tree access
@@ -402,17 +403,6 @@
   (modify ?op (run-metadata-proto-scene-id ?scene-id))
 )
 
-(defrule run-metadata-proto-update-state
-  (declare (salience ?*SALIENCE-HIGHER*))
-  ?op <- (operation-envelope (name ?operation-name)
-                      (state ?state)
-                      (run-metadata-proto-state ~?state)
-  )
- =>
-  (run-metadata-proto-update-field "operation_state" ?state ?operation-name)
-  (modify ?op (run-metadata-proto-state ?state))
-)
-
 (defrule run-metadata-proto-update-execution-mode
   (declare (salience ?*SALIENCE-HIGHER*))
   ?op <- (operation-envelope (name ?operation-name)
@@ -495,3 +485,53 @@
   (run-metadata-proto-clear-field "start_time" ?operation-name)
   (modify ?op (run-metadata-proto-start-time 0 0))
 )
+
+(defrule operation-state-proto-update
+  (declare (salience ?*SALIENCE-HIGHER*))
+  ?op <- (operation-envelope (name ?operation-name)
+                      (state ?state)
+                      (run-metadata-proto-state ~?state)
+                      (return-value-proto ?return-value-proto)
+                      (operation-proto ?operation-proto)
+  )
+ =>
+  (run-metadata-proto-update-field "operation_state" ?state ?operation-name)
+  (modify ?op (run-metadata-proto-state ?state))
+
+  (if (<> ?operation-proto 0) then
+    (switch ?state
+      (case SUCCEEDED then
+        (bind ?response-proto (pb-create "intrinsic_proto.executive.RunResponse"))
+        (if (<> ?return-value-proto 0) then
+          (pb-pack-to-any-field ?response-proto "result" ?return-value-proto)
+        )
+        (pb-pack-to-any-field ?operation-proto "response" ?response-proto)
+        (pb-remove ?response-proto)
+        (pb-set-field ?operation-proto "done" TRUE)
+      )
+      (case FAILED then
+        ; TODO(b/493547558): Handle the FAILED state, which must set done and the
+        ; error field.
+      )
+      (case CANCELED then
+        (bind ?error-proto (pb-create "google.rpc.Status"))
+        ; 1 is the CANCELLED status code.
+        (pb-set-field ?error-proto "code" 1)
+        (pb-set-field ?error-proto "message"
+                      "User cancellation of behavior tree finished.")
+        (pb-set-field ?operation-proto "error" ?error-proto)
+        (pb-remove ?error-proto)
+
+        (pb-set-field ?operation-proto "done" TRUE)
+      )
+      (default
+        ; Non-terminal states: ACCEPTED, PREPARING, RUNNING, SUSPENDING,
+        ; SUSPENDED, CANCELING.
+        (pb-clear-field ?operation-proto "response")
+        (pb-clear-field ?operation-proto "error")
+        (pb-set-field ?operation-proto "done" FALSE)
+      )
+    )
+  )
+)
+

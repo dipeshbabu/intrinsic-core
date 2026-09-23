@@ -104,7 +104,7 @@ Intrinsic Core uses [Kubernetes](../glossary/general_terms.md#kubernetes-k8s) to
 
 ## Step 2: Build and deploy OMTS
 
-Now Intrinsic Core is running, we can prepare to build and deploy the Open Machine Tending Solution:
+Now Intrinsic Core is running, we can prepare to build and deploy the Open Machine Tending Solution (OMTS):
 
 1. Before building a Solution, you'll need to install the [Bazel](https://bazel.build/) build system. We'll use Bazelisk, which manages Bazel versions:
 

@@ -70,13 +70,22 @@ const (
 
 var protectedNamespaces = []string{"argo", "argocd", "default", "kube-node-lease", "kube-public", "kube-system"}
 
-// SharedGatewayNamespaces defines the shared infrastructure and authentication gateway namespaces
-// (e.g., auth-proxy, frontend, token-vendor) where individual charts may deploy out-of-namespace
-// Gateway API routing templates (HTTPRoute / GRPCRoute).
+// SharedGatewayNamespaces defines the shared authentication gateway namespaces
+// (e.g., auth-proxy2, token-vendor, zenoh-auth-proxy) where individual charts may deploy out-of-namespace
+// Gateway API resources (such as ReferenceGrant).
 // Restricting out-of-namespace discovery to these known shared gateway namespaces instead of
 // issuing cluster-wide sweeps across all namespaces (metav1.NamespaceAll) prevents multiplying
 // API server List queries across ~250+ GVRs for unrelated cluster namespaces (kube-system, argo, etc.).
-var SharedGatewayNamespaces = []string{"app-auth-proxy", "app-frontend", "app-token-vendor"}
+var SharedGatewayNamespaces = []string{"app-auth-proxy2", "app-token-vendor", "app-zenoh-auth-proxy"}
+
+// targetNamespacesForDelete returns the deduplicated list of namespaces to query when deleting a
+// chart's tracked resources: SharedGatewayNamespaces and the primary chart namespace.
+func targetNamespacesForDelete(primaryNamespace string) []string {
+	if slices.Contains(SharedGatewayNamespaces, primaryNamespace) {
+		return SharedGatewayNamespaces
+	}
+	return append(SharedGatewayNamespaces, primaryNamespace)
+}
 
 // allowedDiscoveryFailureResources defines resources (e.g. events) that often fail generic dynamic client List queries due to RBAC or API server behaviors across scopes.
 var allowedDiscoveryFailureResources = []string{"events", "events.events.k8s.io"}
@@ -696,7 +705,7 @@ func DeleteChart(ctx context.Context, chartName string, clusterConfig *ClusterCo
 	}
 
 	// Discover resources across the primary chart namespace and known shared gateway namespaces (SharedGatewayNamespaces) where routes may exist.
-	targetNamespaces := append([]string{namespace}, SharedGatewayNamespaces...)
+	targetNamespaces := targetNamespacesForDelete(namespace)
 	resources, err := discoverResources(ctx, clusterConfig, targetNamespaces, trackingPrefixes, true)
 	if err != nil {
 		return fmt.Errorf("failed to discover resources: %w", err)

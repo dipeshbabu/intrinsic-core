@@ -5,7 +5,7 @@ Solution (OMTS) using a visualizer.
 
 ## Prerequisites
 
-This Solution requires an NVidia GPU to detect the position of the workpiece.
+This Solution requires an NVIDIA GPU to detect the position of the workpiece.
 
 If you haven't already, follow [Getting started](getting_started.md) to start OMTS, then [Visualize the robot](visualize_the_robot.md) to start RViz and/or Gazebo.
 

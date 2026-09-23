@@ -39,7 +39,7 @@
       <!-- KUKA Ipo State -->
       <ELEMENT TAG="IpoState" TYPE="LONG" INDX="15" />
       <!-- Customizable digital inputs/outputs. Input Tags need to be of format "DigIn.DI<number>",
-      where the number needs to be ascending without gaps. Outputs must be similarily tagged
+      where the number needs to be ascending without gaps. Outputs must be similarly tagged
       "DigOut.DO<number>" -->
       <ELEMENT TAG="DigIn.DI1" TYPE="LONG" INDX="16" />
       <ELEMENT TAG="DigIn.DI2" TYPE="LONG" INDX="17" />

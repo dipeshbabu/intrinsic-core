@@ -18,7 +18,11 @@
 #include <pxr/base/gf/quatd.h>
 #include <pxr/base/gf/quatf.h>
 #include <pxr/base/gf/rotation.h>
+#include <pxr/base/gf/vec3d.h>
 #include <pxr/base/gf/vec3f.h>
+#include <pxr/base/vt/array.h>
+#include <pxr/usd/usd/attribute.h>
+#include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usd/primRange.h>
 #include <pxr/usd/usdGeom/capsule.h>
 #include <pxr/usd/usdGeom/cube.h>
@@ -90,6 +94,49 @@ Pose3d GetRotatedPose(const eigenmath::Vector3d& original_axis,
   auto rotation =
       eigenmath::Quaterniond::FromTwoVectors(original_axis, rotated_axis);
   return Pose3d(rotation.normalized());
+}
+
+// Returns true if the given prim is a collider, i.e. the prim or one of its
+// ancestors has the collision API applied, and collisions are not disabled by
+// the prim or any of its ancestors.
+bool IsCollisionEnabled(const pxr::UsdPrim& prim) {
+  bool has_collision_api = false;
+  for (pxr::UsdPrim curr = prim; curr; curr = curr.GetParent()) {
+    if (!curr.HasAPI<pxr::UsdPhysicsCollisionAPI>()) {
+      continue;
+    }
+    has_collision_api = true;
+    // The USD default is `true`, which is kept if the attribute is absent.
+    bool enabled = true;
+    ReadAttributeOrKeepDefault(
+        pxr::UsdPhysicsCollisionAPI(curr).GetCollisionEnabledAttr(), enabled);
+    if (!enabled) {
+      return false;
+    }
+  }
+  return has_collision_api;
+}
+
+// Reads the points of the given mesh, which USD allows to be authored either
+// as `point3f[]` (single precision) or `point3d[]` (double precision).
+absl::Status ReadMeshPoints(const pxr::UsdGeomMesh& usd_mesh,
+                            pxr::VtArray<pxr::GfVec3f>& points) {
+  const pxr::UsdAttribute points_attr = usd_mesh.GetPointsAttr();
+  if (points_attr.Get<pxr::VtArray<pxr::GfVec3f>>(&points)) {
+    return absl::OkStatus();
+  }
+  pxr::VtArray<pxr::GfVec3d> double_points;
+  if (!points_attr.Get<pxr::VtArray<pxr::GfVec3d>>(&double_points)) {
+    return absl::InvalidArgumentError(
+        absl::Substitute("Failed to read the points attribute from mesh $0",
+                         usd_mesh.GetPath().GetString()));
+  }
+  points.clear();
+  points.reserve(double_points.size());
+  for (const pxr::GfVec3d& point : double_points) {
+    points.emplace_back(point);
+  }
+  return absl::OkStatus();
 }
 
 }  // namespace
@@ -164,13 +211,13 @@ absl::StatusOr<JointProtoWithInfo> JointProtoFromUsdJoint(
     // We convert to radians.
     // The USD default for lower_limit is -inf.
     float lower_limit{-std::numeric_limits<float>::infinity()};
-    INTR_RET_CHECK(revolute_joint.GetLowerLimitAttr().Get<float>(&lower_limit));
+    ReadAttributeOrKeepDefault(revolute_joint.GetLowerLimitAttr(), lower_limit);
     if (lower_limit != -std::numeric_limits<float>::infinity()) {
       lower_limit *= M_PI / 180.0;
     }
     // The USD default for upper_limit is +inf.
     float upper_limit{std::numeric_limits<float>::infinity()};
-    INTR_RET_CHECK(revolute_joint.GetUpperLimitAttr().Get<float>(&upper_limit));
+    ReadAttributeOrKeepDefault(revolute_joint.GetUpperLimitAttr(), upper_limit);
     if (upper_limit != std::numeric_limits<float>::infinity()) {
       upper_limit *= M_PI / 180.0f;
     }
@@ -180,13 +227,13 @@ absl::StatusOr<JointProtoWithInfo> JointProtoFromUsdJoint(
     INTR_RETURN_IF_ERROR(kinematics->SetSystemRawValueFixedLimits(
         lower_limit, upper_limit, true));
   } else if (joint.GetPrim().IsA<pxr::UsdPhysicsPrismaticJoint>()) {
-    const pxr::UsdPhysicsRevoluteJoint revolute_joint{joint.GetPrim()};
+    const pxr::UsdPhysicsPrismaticJoint prismatic_joint{joint.GetPrim()};
     kinematics->SetMotionType(
         intrinsic_proto::world::KinematicsComponent::MOTION_TYPE_PRISMATIC);
     // In both USD and our SceneObject proto, the axis is relative to the
     // joint's inboard coordinate frame.
     INTR_ASSIGN_OR_RETURN(auto axis_vector,
-                          ParseAxisAttribute(revolute_joint.GetAxisAttr()));
+                          ParseAxisAttribute(prismatic_joint.GetAxisAttr()));
     kinematics->SetAxis(axis_vector);
 
     // The lower and upper limits for a prismatic joint are given in USD
@@ -195,13 +242,15 @@ absl::StatusOr<JointProtoWithInfo> JointProtoFromUsdJoint(
     const double meters_per_unit =
         pxr::UsdGeomGetStageMetersPerUnit(joint.GetPrim().GetStage());
     float lower_limit{-std::numeric_limits<float>::infinity()};
-    INTR_RET_CHECK(revolute_joint.GetLowerLimitAttr().Get<float>(&lower_limit));
+    ReadAttributeOrKeepDefault(prismatic_joint.GetLowerLimitAttr(),
+                               lower_limit);
     if (lower_limit != -std::numeric_limits<float>::infinity()) {
       lower_limit *= meters_per_unit;
     }
     // The USD default for upper_limit is +inf.
     float upper_limit{std::numeric_limits<float>::infinity()};
-    INTR_RET_CHECK(revolute_joint.GetUpperLimitAttr().Get<float>(&upper_limit));
+    ReadAttributeOrKeepDefault(prismatic_joint.GetUpperLimitAttr(),
+                               upper_limit);
     if (upper_limit != std::numeric_limits<float>::infinity()) {
       upper_limit *= meters_per_unit;
     }
@@ -424,7 +473,7 @@ GeometryComponentFromRigidBody(const pxr::UsdPhysicsRigidBodyAPI rigid_body,
             visual_geometry_namer.GetNameForPrim(child_prim);
         visual_geometry_set.emplace(unique_name, geometry_proto);
       }
-      if (InheritsAPI<pxr::UsdPhysicsCollisionAPI>(child_prim)) {
+      if (IsCollisionEnabled(child_prim)) {
         std::string unique_name =
             collision_geometry_namer.GetNameForPrim(child_prim);
         collision_geometry_set.emplace(unique_name, geometry_proto);
@@ -460,10 +509,13 @@ PhysicsComponentFromRigidBody(const pxr::UsdPhysicsRigidBodyAPI rigidBody) {
   if (rigidBody.GetPrim().HasAPI<pxr::UsdPhysicsMassAPI>()) {
     const pxr::UsdPhysicsMassAPI massAPI(rigidBody.GetPrim());
 
+    // The attributes below are all optional. If one is not authored and has no
+    // schema fallback, the USD default documented at each attribute is kept.
+    //
     // USD default value is 0. A mass of 0 means the body's mass properties
     // should be ignored. Return the default PhysicsComponent in that case.
     float mass{0.0};
-    INTR_RET_CHECK(massAPI.GetMassAttr().Get(&mass));
+    ReadAttributeOrKeepDefault(massAPI.GetMassAttr(), mass);
     if (mass <= 0.0) {
       return physics_component->ToProto();
     }
@@ -471,7 +523,7 @@ PhysicsComponentFromRigidBody(const pxr::UsdPhysicsRigidBodyAPI rigidBody) {
     // USD default value: (-inf, -inf, -inf)
     // Our default value: {0, 0, 0}
     pxr::GfVec3f center_of_mass{0.0};
-    INTR_RET_CHECK(massAPI.GetCenterOfMassAttr().Get(&center_of_mass));
+    ReadAttributeOrKeepDefault(massAPI.GetCenterOfMassAttr(), center_of_mass);
     if (std::isinf(center_of_mass[0]) || std::isinf(center_of_mass[1]) ||
         std::isinf(center_of_mass[2])) {
       center_of_mass = {0, 0, 0};
@@ -479,8 +531,11 @@ PhysicsComponentFromRigidBody(const pxr::UsdPhysicsRigidBodyAPI rigidBody) {
 
     // USD default value: (0, 0, 0)
     // Our default value: (1, 1, 1)
+    const pxr::UsdAttribute diagonal_inertia_attr =
+        massAPI.GetDiagonalInertiaAttr();
     pxr::GfVec3f diagonal_inertia{0.0};
-    INTR_RET_CHECK(massAPI.GetDiagonalInertiaAttr().Get(&diagonal_inertia));
+    ReadAttributeOrKeepDefault(diagonal_inertia_attr, diagonal_inertia);
+    const bool has_authored_inertia = diagonal_inertia_attr.HasAuthoredValue();
     if (pxr::GfIsClose(diagonal_inertia, pxr::GfVec3f{0}, 1e-8)) {
       diagonal_inertia = {1, 1, 1};
     }
@@ -488,7 +543,7 @@ PhysicsComponentFromRigidBody(const pxr::UsdPhysicsRigidBodyAPI rigidBody) {
     // USD default value: (0, 0, 0, 0)
     // Our default value: (1, 0, 0, 0)
     pxr::GfQuatf principal_axes{0.0};
-    INTR_RET_CHECK(massAPI.GetPrincipalAxesAttr().Get(&principal_axes));
+    ReadAttributeOrKeepDefault(massAPI.GetPrincipalAxesAttr(), principal_axes);
     if (pxr::GfIsClose(principal_axes.GetImaginary(), pxr::GfVec3f(0), 1e-8) &&
         fabsf(principal_axes.GetReal()) < 1e-8) {
       principal_axes = pxr::GfQuatf::GetIdentity();
@@ -498,10 +553,15 @@ PhysicsComponentFromRigidBody(const pxr::UsdPhysicsRigidBodyAPI rigidBody) {
     // Mass is given in arbitrary units in USD and must be converted to kg using
     // a conversion given per-stage (defaults to 1).
     Pose3d center_of_mass_pose = CreatePose(principal_axes, center_of_mass);
-    eigenmath::Matrix3d inertia_matrix =
-        ConvertVector(diagonal_inertia).cast<double>().asDiagonal();
     double kg_per_unit =
         pxr::UsdPhysicsGetStageKilogramsPerUnit(rigidBody.GetPrim().GetStage());
+    if (has_authored_inertia) {
+      // The authored inertia is given in the stage's mass units. Our default
+      // inertia is already in kg and must not be converted.
+      diagonal_inertia *= kg_per_unit;
+    }
+    eigenmath::Matrix3d inertia_matrix =
+        ConvertVector(diagonal_inertia).cast<double>().asDiagonal();
     physics_component->SetMassKg(mass * kg_per_unit);
     physics_component->SetThisTCenterOfMass(center_of_mass_pose);
     physics_component->SetInertiaMatrix(inertia_matrix);
@@ -521,8 +581,7 @@ absl::StatusOr<UsdMeshData> UsdMeshData::ParseMesh(
       &result.face_vertex_indices_));
   INTR_RET_CHECK(usd_mesh.GetFaceVertexCountsAttr().Get<pxr::VtArray<int>>(
       &result.face_vertex_counts_));
-  INTR_RET_CHECK(usd_mesh.GetPointsAttr().Get<pxr::VtArray<pxr::GfVec3f>>(
-      &result.points_));
+  INTR_RETURN_IF_ERROR(ReadMeshPoints(usd_mesh, result.points_));
 
   std::string topology_error_reason;
   if (!pxr::UsdGeomMesh::ValidateTopology(
@@ -631,6 +690,13 @@ absl::StatusOr<Mesh> UsdMeshData::CreateMeshWithFaceIndices(
   // Collect all the subset faces
   Mesh::FaceCollection subset_faces;
   for (int face_index : indices) {
+    if (face_index < 0 ||
+        static_cast<size_t>(face_index) >= face_vertex_counts_.size()) {
+      return absl::InvalidArgumentError(absl::Substitute(
+          "Submesh face index $0 of mesh $1 is out of bounds [0, $2)",
+          face_index, usd_mesh_.GetPath().GetString(),
+          face_vertex_counts_.size()));
+    }
     int vert_count = face_vertex_counts_[face_index];
     int face_start_index = face_start_indices_[face_index];
     INTR_RETURN_IF_ERROR(TriangulateFace(face_vertex_indices_, face_start_index,
@@ -725,22 +791,22 @@ absl::StatusOr<Geometry> GeometryFromUsdPrimitive(
   ExactGeometry exact_geometry = ExactGeometry::CreateEmpty();
   if (usd_geometry.GetPrim().IsA<pxr::UsdGeomSphere>()) {
     const pxr::UsdGeomSphere usd_sphere{usd_geometry};
-    double radius{0.0};
-    INTR_RET_CHECK(usd_sphere.GetRadiusAttr().Get<double>(&radius));
+    INTR_ASSIGN_OR_RETURN(const double radius,
+                          GetDoubleOrFloat(usd_sphere.GetRadiusAttr()));
     shapes::Sphere intrinsic_sphere{radius};
     exact_geometry = ExactGeometry{std::move(intrinsic_sphere)};
   } else if (usd_geometry.GetPrim().IsA<pxr::UsdGeomCube>()) {
     const pxr::UsdGeomCube usd_cube{usd_geometry};
-    double size{0.0};
-    INTR_RET_CHECK(usd_cube.GetSizeAttr().Get<double>(&size));
+    INTR_ASSIGN_OR_RETURN(const double size,
+                          GetDoubleOrFloat(usd_cube.GetSizeAttr()));
     shapes::Box intrinsic_box(eigenmath::Vector3d(size, size, size));
     exact_geometry = ExactGeometry{std::move(intrinsic_box)};
   } else if (usd_geometry.GetPrim().IsA<pxr::UsdGeomCylinder>()) {
     const pxr::UsdGeomCylinder usd_cylinder{usd_geometry};
-    double height{0.0};
-    INTR_RET_CHECK(usd_cylinder.GetHeightAttr().Get<double>(&height));
-    double radius{0.0};
-    INTR_RET_CHECK(usd_cylinder.GetRadiusAttr().Get<double>(&radius));
+    INTR_ASSIGN_OR_RETURN(const double height,
+                          GetDoubleOrFloat(usd_cylinder.GetHeightAttr()));
+    INTR_ASSIGN_OR_RETURN(const double radius,
+                          GetDoubleOrFloat(usd_cylinder.GetRadiusAttr()));
     INTR_ASSIGN_OR_RETURN(auto axis_vector,
                           ParseAxisAttribute(usd_cylinder.GetAxisAttr()));
     // Our shapes::Cylinder is Z-axis aligned, so we must use a rotated
@@ -753,10 +819,10 @@ absl::StatusOr<Geometry> GeometryFromUsdPrimitive(
                           ExactGeometry::Create(transformed_shape));
   } else if (usd_geometry.GetPrim().IsA<pxr::UsdGeomCapsule>()) {
     const pxr::UsdGeomCapsule usd_capsule{usd_geometry};
-    double height{0.0};
-    INTR_RET_CHECK(usd_capsule.GetHeightAttr().Get<double>(&height));
-    double radius{0.0};
-    INTR_RET_CHECK(usd_capsule.GetRadiusAttr().Get<double>(&radius));
+    INTR_ASSIGN_OR_RETURN(const double height,
+                          GetDoubleOrFloat(usd_capsule.GetHeightAttr()));
+    INTR_ASSIGN_OR_RETURN(const double radius,
+                          GetDoubleOrFloat(usd_capsule.GetRadiusAttr()));
     INTR_ASSIGN_OR_RETURN(auto axis_vector,
                           ParseAxisAttribute(usd_capsule.GetAxisAttr()));
     // Our shapes::Capsule is Z-axis aligned, so we must use a rotated
@@ -820,7 +886,7 @@ ParseMaterialForPrim(const pxr::UsdPrim& primitive) {
   pxr::UsdShadeConnectableAPI connected_source;
   pxr::UsdShadeOutput surface_output = material.GetSurfaceOutput();
   pxr::UsdShadeOutput mdl_surface_output =
-      material.CreateSurfaceOutput(pxr::TfToken("mdl"));
+      material.GetSurfaceOutput(pxr::TfToken("mdl"));
   if (surface_output && surface_output.GetConnectedSources().size() == 1) {
     connected_source = surface_output.GetConnectedSources()[0].source;
   } else if (mdl_surface_output &&

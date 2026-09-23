@@ -134,7 +134,7 @@ bazel run //tools/world:apply_scene_updates -- \
   --address=localhost:17080 \
   --files configs/raw_stock_in_vise.updates.pbtxt
 # Plan again to grasp the workpiece that is in the vice now
-# This planning step may take longer due to the lenght of the trajectory if the
+# This planning step may take longer due to the length of the trajectory if the
 # world has not been reset
 bazel run //third_party/intrinsic_moveit/tools:moveit_plan_grasp_and_move -- \
   --address=localhost:17080 \

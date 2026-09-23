@@ -1,14 +1,14 @@
 # Cell customization
 
-Learn how to customize the physical layout of your [OMTS](../glossary/intrinsic_terms.md#open-machine-tending-solution-omts) cell, including the [robot](../glossary/general_terms.md#robot) base and key frames.
+Learn how to customize the physical layout of your [Open Machine Tending Solution (OMTS)](../glossary/intrinsic_terms.md#open-machine-tending-solution-omts) cell, including the [robot](../glossary/general_terms.md#robot) base and key frames.
 
 ## Prerequisites
 
-If you haven't already, follow [Getting started](getting_started.md) to fetch the sources for the Intrinsic OMTS [Solution](../glossary/intrinsic_terms.md#solution) and start it, and follow [Visualize the robot](visualize_the_robot.md) to start RViz, which we'll use to verify changes to the layout.
+If you haven't already, follow [Getting started](getting_started.md) to fetch the sources for OMTS [Solution](../glossary/intrinsic_terms.md#solution) and start it, and follow [Visualize the robot](visualize_the_robot.md) to start RViz, which we'll use to verify changes to the layout.
 
 ## Understanding ObjectWorldUpdates
 
-An Intrinsic Solution defines objects by providing [Asset](../glossary/intrinsic_terms.md#asset) instances that make up the Solution. For example, if a UR robot will pick up a building block, your Solution might look like this simplified example:
+An Intrinsic Solution defines objects by providing [Asset](../glossary/intrinsic_terms.md#asset) instances that make up the Solution. For example, if a Universal Robot (UR) manipulator will pick up a building block, your Solution might look like this simplified example:
 
 
 ```python

@@ -103,6 +103,7 @@ cc_library(
     srcs = ["simulator_world_manager.cc"],
     hdrs = ["simulator_world_manager.h"],
     deps = [
+        "//intrinsic/util/grpc",
         "//intrinsic/util/status:status_conversion_grpc",
         "//intrinsic/util/status:status_macros",
         "//intrinsic/world/proto:object_world_service_cc_grpc_proto",
@@ -112,6 +113,7 @@ cc_library(
         "//intrinsic_sdk/intrinsic/world:entity_id",
         "//intrinsic_sdk/intrinsic/world/objects:object_world_client",
         "@abseil-cpp//absl/cleanup",
+        "@abseil-cpp//absl/functional:function_ref",
         "@abseil-cpp//absl/log",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",

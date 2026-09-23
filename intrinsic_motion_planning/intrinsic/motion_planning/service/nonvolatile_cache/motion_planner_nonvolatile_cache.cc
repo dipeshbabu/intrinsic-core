@@ -76,7 +76,7 @@ MotionPlannerNonvolatileCacheKey::Create(
   for (const auto& motion_segment : motion_specification.motion_segments()) {
     poses_of_all_related_transform_nodes.push_back(
         absl::flat_hash_map<ObjectWorldResourceId, Pose3d>());
-    INTR_RETURN_IF_ERROR(ExtractIDWithPoseFromMotionSegment(
+    INTR_RETURN_IF_ERROR(ExtractIdWithPoseFromMotionSegment(
         object_world, motion_segment,
         poses_of_all_related_transform_nodes.back()));
   }

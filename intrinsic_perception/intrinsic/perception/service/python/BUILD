@@ -34,6 +34,8 @@ py_library(
     srcs = ["pose_estimation_client_utils.py"],
     deps = [
         "//intrinsic/assets:id_utils_py",
+        "//intrinsic/assets:interface_utils_py",
+        "//intrinsic/assets/dependencies:utils_py",
         "//intrinsic/util/grpc:connection",
         "//intrinsic/util/grpc:interceptor",
         "//intrinsic_perception/intrinsic/perception/client/v1/python/camera:cameras",
@@ -44,6 +46,7 @@ py_library(
         "@com_github_grpc_grpc//src/python/grpcio/grpc:grpcio",
         "@com_google_protobuf//:protobuf_python",
         "@intrinsic_apis//intrinsic/assets/proto:id_py_pb2",
+        "@intrinsic_apis//intrinsic/assets/proto/v1:resolved_dependency_py_pb2",
         "@intrinsic_apis//intrinsic/logging/proto:context_py_pb2",
         "@intrinsic_apis//intrinsic/perception/proto/v1:capture_data_py_pb2",
         "@intrinsic_apis//intrinsic/perception/proto/v1:capture_result_py_pb2",

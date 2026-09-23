@@ -224,10 +224,9 @@ class PreplanMotionFixtureTest
   absl::StatusOr<std::unique_ptr<google::protobuf::Message>>
   ExecutePreplanMotionTest(
       intrinsic_proto::skills::PreplanMotionParams const& params,
-      eigenmath::VectorNd const& initial,
-      absl::string_view internal_data = "") {
+      eigenmath::VectorNd const& initial) {
     PreplanMotionSkill skill;
-    ExecuteRequest request(std::string(internal_data), params);
+    ExecuteRequest request = skill_test_factory_.MakeExecuteRequest(params);
     auto context = skill_test_factory_.MakeExecuteContext({
         .equipment_pack = GetEquipmentPack(),
         .world_id = std::string(kWorldId),
@@ -264,10 +263,9 @@ class PreplanMotionFixtureTest
   absl::StatusOr<std::unique_ptr<google::protobuf::Message>>
   PreviewPreplanMotionTest(
       intrinsic_proto::skills::PreplanMotionParams const& params,
-      eigenmath::VectorNd const& initial,
-      absl::string_view internal_data = "") {
+      eigenmath::VectorNd const& initial) {
     PreplanMotionSkill skill;
-    PreviewRequest request(std::string(internal_data), params);
+    PreviewRequest request = skill_test_factory_.MakePreviewRequest(params);
     auto context = skill_test_factory_.MakePreviewContext({
         .equipment_pack = GetEquipmentPack(),
         .world_id = std::string(kWorldId),
@@ -365,7 +363,8 @@ TEST_P(PreplanMotionFixtureTest, PreviewWorksWithValidMotionSegment) {
 
 TEST_P(PreplanMotionFixtureTest, GetFootprintDoesNotLockTheUniverse) {
   PreplanMotionSkill skill;
-  GetFootprintRequest request("", CreatePreplanMotionParams());
+  GetFootprintRequest request =
+      skill_test_factory_.MakeGetFootprintRequest(CreatePreplanMotionParams());
   auto context = skill_test_factory_.MakeGetFootprintContext({
       .equipment_pack = GetEquipmentPack(),
       .world_id = std::string(kWorldId),

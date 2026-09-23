@@ -1470,6 +1470,192 @@ TEST_P(MotionPlannerServiceWithoutLoggerTest,
               .position())));
 }
 
+constexpr double kDiscretizedPositionTolerance = 1.0e-6;
+
+// Returns the joint positions of the initial state in `response`.
+const google::protobuf::RepeatedField<double>&
+GetInitialDiscretizedJointPositions(
+    const TrajectoryPlanningResponse& response) {
+  return response.discretized().state().at(0).position();
+}
+
+// Returns the joint positions of the final state in `response`.
+const google::protobuf::RepeatedField<double>&
+GetFinalDiscretizedJointPositions(const TrajectoryPlanningResponse& response) {
+  const auto& discretized_states = response.discretized().state();
+  return discretized_states.at(discretized_states.size() - 1).position();
+}
+
+TEST_P(MotionPlannerServiceWithoutLoggerTest,
+       PlanTrajectoryCacheMissForDifferentRelativeTargetReferenceFrame) {
+  intrinsic_proto::motion_planning::v1::MotionPlanningRequest original_request =
+      UpdateJerkLimits(motion_planning_request_,
+                       GetParam().set_infinite_jerk_limits);
+  *original_request.mutable_robot_specification()
+       ->mutable_start_configuration() = ParseTextProtoOrDie(R"pb(
+    joints: [ 0.0, -2.0, 2.0, 0.0, 0.0, 0.0 ]
+  )pb");
+  *original_request.mutable_motion_specification()
+       ->mutable_motion_segments()
+       ->at(0)
+       .mutable_target() = ParseTextProtoOrDie(R"pb(
+    relative_position_equality {
+      moving_frame {
+        by_name { frame { object_name: "agilus_04" frame_name: "flange" } }
+      }
+      reference_frame { id: "ofid_2" }
+      relative_position { x: 0.05 y: 0.05 z: 0.05 }
+    }
+  )pb");
+
+  ASSERT_OK_AND_ASSIGN(
+      const intrinsic_proto::motion_planning::v1::TrajectoryPlanningResponse
+          original_response,
+      PlanTrajectory(original_request));
+
+  world::ObjectWorldClient object_world_client("world",
+                                               object_world_service_stub_);
+  ASSERT_OK_AND_ASSIGN(const world::WorldObject root,
+                       object_world_client.GetRootObject());
+  ASSERT_OK_AND_ASSIGN(
+      const world::WorldObject reference_object,
+      object_world_client.GetObject(ObjectWorldResourceId("ofid_2")));
+  ASSERT_OK_AND_ASSIGN(
+      const Pose3d root_to_reference_object_pose,
+      object_world_client.GetTransform(root, reference_object));
+
+  // Move the reference object by 0.5 mm (within exact-match cache tolerance)
+  // and perturb the start configuration by 0.0005 rad (also within exact-match
+  // tolerance) so a cache hit returns `original_request`'s start and end
+  // states.
+  ASSERT_OK(object_world_client.UpdateTransform(
+      root, reference_object, reference_object,
+      root_to_reference_object_pose * toPose3d("0.0005 0 0 1 0 0 0")));
+
+  intrinsic_proto::motion_planning::v1::MotionPlanningRequest
+      follow_up_request = original_request;
+  *follow_up_request.mutable_robot_specification()
+       ->mutable_start_configuration() = ParseTextProtoOrDie(R"pb(
+    joints: [ 0.0005, -2.0, 2.0, 0.0, 0.0, 0.0 ]
+  )pb");
+  ASSERT_OK_AND_ASSIGN(
+      const intrinsic_proto::motion_planning::v1::TrajectoryPlanningResponse
+          response_small_diff,
+      PlanTrajectory(follow_up_request));
+  EXPECT_THAT(GetInitialDiscretizedJointPositions(response_small_diff),
+              Pointwise(DoubleEq(), original_request.robot_specification()
+                                        .start_configuration()
+                                        .joints()));
+  EXPECT_THAT(
+      GetFinalDiscretizedJointPositions(original_response),
+      Pointwise(DoubleNear(kDiscretizedPositionTolerance),
+                GetFinalDiscretizedJointPositions(response_small_diff)));
+
+  // Rotate the reference object by 30 degrees (exceeding cache tolerance),
+  // which must trigger a cache miss and replan from `follow_up_request`'s
+  // start configuration to the rotated target.
+  ASSERT_OK(object_world_client.UpdateTransform(
+      root, reference_object, reference_object,
+      root_to_reference_object_pose * toPose3d("0 0 0 0.9659 0 0 0.2588")));
+
+  ASSERT_OK_AND_ASSIGN(
+      const intrinsic_proto::motion_planning::v1::TrajectoryPlanningResponse
+          response_large_diff,
+      PlanTrajectory(follow_up_request));
+  EXPECT_THAT(GetInitialDiscretizedJointPositions(response_large_diff),
+              Pointwise(DoubleEq(), follow_up_request.robot_specification()
+                                        .start_configuration()
+                                        .joints()));
+  EXPECT_THAT(
+      GetFinalDiscretizedJointPositions(original_response),
+      Not(Pointwise(DoubleNear(kDiscretizedPositionTolerance),
+                    GetFinalDiscretizedJointPositions(response_large_diff))));
+}
+
+TEST_P(MotionPlannerServiceWithoutLoggerTest,
+       PlanTrajectoryCacheMissForMovedPointAtPathConstraint) {
+  intrinsic_proto::motion_planning::v1::MotionPlanningRequest original_request =
+      UpdateJerkLimits(motion_planning_request_,
+                       GetParam().set_infinite_jerk_limits);
+  *original_request.mutable_robot_specification()
+       ->mutable_start_configuration() = ParseTextProtoOrDie(R"pb(
+    joints: [ 0.0, -2.0, 2.0, 0.0, 0.0, 0.0 ]
+  )pb");
+  *original_request.mutable_motion_specification()
+       ->mutable_motion_segments()
+       ->at(0)
+       .mutable_path_constraints() = ParseTextProtoOrDie(R"pb(
+    point_at {
+      moving_frame { id: "ofid_2" }
+      target_frame { id: "root" }
+      moving_axis { z: 1.0 }
+      target_frame_offset { x: 0.5 y: 0.5 z: 0.2 }
+      tolerance: 3.0
+    }
+  )pb");
+
+  ASSERT_OK_AND_ASSIGN(
+      const intrinsic_proto::motion_planning::v1::TrajectoryPlanningResponse
+          original_response,
+      PlanTrajectory(original_request));
+  EXPECT_THAT(GetInitialDiscretizedJointPositions(original_response),
+              Pointwise(DoubleEq(), original_request.robot_specification()
+                                        .start_configuration()
+                                        .joints()));
+
+  world::ObjectWorldClient object_world_client("world",
+                                               object_world_service_stub_);
+  ASSERT_OK_AND_ASSIGN(const world::WorldObject root,
+                       object_world_client.GetRootObject());
+  ASSERT_OK_AND_ASSIGN(
+      const world::WorldObject constrained_object,
+      object_world_client.GetObject(ObjectWorldResourceId("ofid_2")));
+  ASSERT_OK_AND_ASSIGN(
+      const Pose3d root_to_constrained_object_pose,
+      object_world_client.GetTransform(root, constrained_object));
+
+  // Move the `point_at` constrained frame by 0.5 mm (within exact-match cache
+  // tolerance) and perturb the start configuration by 0.0005 rad (also within
+  // exact-match tolerance). A cache hit returns `original_response` starting at
+  // `original_request`'s start configuration.
+  ASSERT_OK(object_world_client.UpdateTransform(
+      root, constrained_object, constrained_object,
+      root_to_constrained_object_pose * toPose3d("0.0005 0 0 1 0 0 0")));
+
+  intrinsic_proto::motion_planning::v1::MotionPlanningRequest
+      follow_up_request = original_request;
+  *follow_up_request.mutable_robot_specification()
+       ->mutable_start_configuration() = ParseTextProtoOrDie(R"pb(
+    joints: [ 0.0005, -2.0, 2.0, 0.0, 0.0, 0.0 ]
+  )pb");
+  ASSERT_OK_AND_ASSIGN(
+      const intrinsic_proto::motion_planning::v1::TrajectoryPlanningResponse
+          response_small_diff,
+      PlanTrajectory(follow_up_request));
+  EXPECT_THAT(GetInitialDiscretizedJointPositions(response_small_diff),
+              Pointwise(DoubleEq(), original_request.robot_specification()
+                                        .start_configuration()
+                                        .joints()));
+
+  // Move the `point_at` constrained frame in the world by 10 cm. The cache
+  // must miss and replan from `follow_up_request`'s start configuration instead
+  // of returning a false cache hit with `original_request`'s trajectory.
+  ASSERT_OK(object_world_client.UpdateTransform(
+      root, constrained_object, constrained_object,
+      root_to_constrained_object_pose * toPose3d("0.1 0 0 1 0 0 0")));
+
+  ASSERT_OK_AND_ASSIGN(const TrajectoryPlanningResponse response_large_diff,
+                       PlanTrajectory(follow_up_request));
+  EXPECT_THAT(GetInitialDiscretizedJointPositions(response_large_diff),
+              Pointwise(DoubleEq(), follow_up_request.robot_specification()
+                                        .start_configuration()
+                                        .joints()));
+  EXPECT_THAT(GetInitialDiscretizedJointPositions(response_large_diff),
+              Not(Pointwise(DoubleEq(), original_request.robot_specification()
+                                            .start_configuration()
+                                            .joints())));
+}
+
 TEST_P(MotionPlannerServiceWithoutLoggerTest,
        PlanTrajectoryCacheFuzzyMissForPathWithCollision) {
   intrinsic_proto::motion_planning::v1::MotionPlanningRequest original_request =

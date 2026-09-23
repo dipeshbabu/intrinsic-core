@@ -19,26 +19,27 @@ Parameters:
   - route: (required) Target HTTPRoute/GRPCRoute resource name.
   - context: (required) Root Helm template context ($).
   - kind: (optional, default "HTTPRoute") Target route kind ("HTTPRoute" or "GRPCRoute").
-  - scopes: (optional) Auth scopes to pass via contextExtensions (e.g. "internal", "clusterheader", "tokenvendor,tvrobot", "tokenvendor,tvhuman", "serviceauth").
-  - endpoint: (optional) Auth endpoint ("authorizeCluster", "checkAuthentication").
+  - scopes: (optional) Auth scopes to pass via contextExtensions (e.g. "internal", "clusterheader", "tvrobot", "tvhuman", "serviceauth").
+  - endpoint: (optional, default "authorize") Auth endpoint ("authorize", "authorizeCluster", "public").
   - app: (optional, default .route) Label app: <app>.
   - namespace: (optional, default .context.Release.Namespace) Route/caller namespace.
-  - authService: (optional, default "authproxy2") Target auth service name.
-  - authNamespace: (optional, default "app-authproxy2") Target auth service namespace.
+  - authService: (optional, default "auth-proxy2") Target auth service name.
+  - authNamespace: (optional, default "app-auth-proxy2") Target auth service namespace.
   - authPort: (optional, default 8081) Target auth service port.
 
 Usage:
   {{ include "auth.proxy2" (dict "route" "vmpoolmanager" "kind" "GRPCRoute" "context" $) }}
   {{ include "auth.proxy2" (dict "route" "vmpoolmanager-internal" "kind" "GRPCRoute" "scopes" "internal" "context" $) }}
   {{ include "auth.proxy2" (dict "route" "relay-server" "endpoint" "authorizeCluster" "scopes" "clusterheader" "context" $) }}
-  {{ include "auth.proxy2" (dict "route" "relay-client" "scopes" "tokenvendor,tvrobot" "context" $) }}
+  {{ include "auth.proxy2" (dict "route" "relay-client" "scopes" "tvrobot" "context" $) }}
 */}}
 {{- define "auth.proxy2" -}}
 {{- $kind := default "HTTPRoute" .kind -}}
+{{- $endpoint := default "authorize" .endpoint -}}
 {{- $appLabel := default .route .app -}}
 {{- $callerNs := default "default" (default .context.Release.Namespace .namespace) -}}
-{{- $authService := default "authproxy2" .authService -}}
-{{- $authNamespace := default "app-authproxy2" .authNamespace -}}
+{{- $authService := default "auth-proxy2" .authService -}}
+{{- $authNamespace := default "app-auth-proxy2" .authNamespace -}}
 {{- $authPort := default 8081 .authPort -}}
 
 ---
@@ -55,19 +56,15 @@ spec:
       kind: {{ $kind }}
       name: {{ .route }}
   extAuth:
-    {{- if or .scopes .endpoint }}
     contextExtensions:
       {{- if .scopes }}
       - name: scopes
         type: Value
         value: {{ .scopes | quote }}
       {{- end }}
-      {{- if .endpoint }}
       - name: endpoint
         type: Value
-        value: {{ .endpoint | quote }}
-      {{- end }}
-    {{- end }}
+        value: {{ $endpoint | quote }}
     headersToExtAuth:
       - authorization
       - cookie
@@ -105,6 +102,8 @@ kind: ReferenceGrant
 metadata:
   name: {{ $refGrantName }}
   namespace: {{ .targetNamespace }}
+  annotations:
+    synk.cloudrobotics.com/allow-cross-namespace: "true"
   labels:
     app.kubernetes.io/name: {{ .context.Chart.Name }}
 spec:
