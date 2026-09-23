@@ -135,8 +135,8 @@ class MathTypesTest(math_test.TestCase, parameterized.TestCase):
   def test_get_matching_arrays_preserves_mixed_scalars(self, lhs, rhs):
     lhs_array, rhs_array = math_types.get_matching_arrays(lhs, rhs)
 
-    self.assert_all_equal(lhs_array, [lhs])
-    self.assert_all_equal(rhs_array, [rhs])
+    self.assert_all_equal(lhs_array, np.asarray(lhs))
+    self.assert_all_equal(rhs_array, np.asarray(rhs))
 
   def test_get_matching_arrays_wrong_size(self):
     """Checks when inputs have different numbers of elements."""
