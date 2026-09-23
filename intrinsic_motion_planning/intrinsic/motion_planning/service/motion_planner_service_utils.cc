@@ -97,7 +97,8 @@ absl::StatusOr<JointTrajectoryPVA> PlanTrajectoryImpl(
 
 absl::StatusOr<std::vector<TransformedGeometry>> ComputeSweptVolumeFromPath(
     const World& world, RobotCollectionsEntityId robot_id,
-    const std::vector<eigenmath::VectorXd>& path) {
+    const std::vector<eigenmath::VectorXd>& path,
+    const double max_joint_travel_per_step) {
   return absl::UnimplementedError(
       "ComputeSweptVolumeFromPath is "
       "not implemented.");
