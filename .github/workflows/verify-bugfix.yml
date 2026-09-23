@@ -1,0 +1,39 @@
+name: Validate functional bug fix
+
+on:
+  push:
+    branches:
+      - ci/validate-scalar-conversion
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out the exact fix commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: c44dcbbf2a894b5fb210dd0c2816f76218897026
+          lfs: true
+      - name: Set up Bazel
+        uses: bazel-contrib/setup-bazel@0.14.0
+        with:
+          bazelisk-cache: true
+          disk-cache: intrinsic-core-build
+          external-cache: true
+          repository-cache: true
+      - name: Regression tests
+        run: bazel test //intrinsic_sdk/intrinsic/math/python:math_types_test --test_output=errors
+      - name: Build all targets
+        run: |
+          unset -v ANDROID_HOME ANDROID_SDK_HOME
+          bazel build //...
+      - name: Test all targets
+        run: bazel test //... --test_output=errors
+      - name: Build the published CI artifacts
+        run: |
+          unset -v ANDROID_HOME ANDROID_SDK_HOME
+          bazel build //intrinsic_runtime:intrinsic_base //intrinsic/tools/inctl:inctl_external
