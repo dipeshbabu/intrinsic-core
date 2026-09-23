@@ -91,7 +91,7 @@ ICON adds some additional semantics and features on top of this basic transport:
 
 First, the ICON service can use interfaces with `futex`es to trigger function
 calls in a HWM and vice versa. This allows low-overhead lockstep synchronization
-between the ICON service and HWMs, as well as aynchronous state changes. As an
+between the ICON service and HWMs, as well as asynchronous state changes. As an
 example of the latter, a HWM is allowed to take as much time as it needs at
 startup to set up its realtime operation.
 
