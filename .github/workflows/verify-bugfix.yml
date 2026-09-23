@@ -16,7 +16,7 @@ jobs:
       matrix:
         include:
           - name: Scalar
-            commit: 6d80cb6b107c5c22c909af3d12eaef9245ec7736
+            commit: 3196f4e6a6e17b33e5b73f2310c58f0e207fef39
             source: math_types.py
             files: math_types.py math_types_test.py
             regression_target: math_types_test
