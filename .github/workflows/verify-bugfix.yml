@@ -19,7 +19,7 @@ jobs:
       - name: Check out pose serialization fix
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          ref: 2f0147770bd48cba5a8ee551a8617c117a7c5517
+          ref: 1d3f960ae1845fdd02e15364144b7e5094b5ddaf
           fetch-depth: 0
           lfs: true
       - name: Reclaim space on disposable hosted runner
@@ -50,7 +50,7 @@ jobs:
       - name: Verify pose fix and reproduce original failure
         run: |
           bash "$RUNNER_TEMP/validate-functional-regression.sh" \
-            2f0147770bd48cba5a8ee551a8617c117a7c5517 proto_conversion.py \
+            1d3f960ae1845fdd02e15364144b7e5094b5ddaf proto_conversion.py \
             'ERROR: test_pose_to_proto_normalizes_near_unit_quaternion' \
             //intrinsic_sdk/intrinsic/math/python:proto_conversion_test
       - name: Build all targets for pose fix
@@ -70,13 +70,13 @@ jobs:
       - name: Check out reflection validation fix
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          ref: cf7c610c5dcc98422d6d01dab1173f5c1f8dad14
+          ref: 9171c96a89b4ee3db41fc6fd339cc085c7e1d761
           fetch-depth: 0
           lfs: true
       - name: Verify reflection fix and reproduce original failure
         run: |
           bash "$RUNNER_TEMP/validate-functional-regression.sh" \
-            cf7c610c5dcc98422d6d01dab1173f5c1f8dad14 rotation3.py \
+            9171c96a89b4ee3db41fc6fd339cc085c7e1d761 rotation3.py \
             'FAIL: test_from_matrix.*rejects_reflection' \
             //intrinsic_sdk/intrinsic/math/python:rotation3_test \
             //intrinsic_sdk/intrinsic/math/python:pose3_test

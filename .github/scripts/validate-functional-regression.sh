@@ -15,7 +15,7 @@ git diff --check "$base_commit" HEAD
 mapfile -t changed_python_files < <(git diff --name-only "$base_commit" HEAD -- '*.py')
 test "${#changed_python_files[@]}" -gt 0
 pipx run --spec pyink==25.12.0 pyink --check --line-length=80 --pyink-indentation=2 --pyink-use-majority-quotes "${changed_python_files[@]}"
-pipx run --spec isort==6.0.1 isort --check-only --profile=google "${changed_python_files[@]}"
+pipx run --spec isort==6.0.1 isort --check-only --profile=google --project intrinsic "${changed_python_files[@]}"
 
 unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
 bazel test //intrinsic_sdk/intrinsic/math/python:all \
