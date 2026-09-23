@@ -1,4 +1,4 @@
-name: Validate functional bug fix
+name: Validate math fixes with isolated tests
 
 on:
   push:
@@ -71,9 +71,35 @@ jobs:
             //intrinsic_hardware/intrinsic/hardware/gpio:opcua_gpio_service_test \
             //intrinsic_hardware/intrinsic/hardware/gpio:opcua_gpio_service_delayed_connection_test \
             --spawn_strategy=linux-sandbox --strategy=TestRunner=linux-sandbox --test_output=errors
-      - name: Test all targets with network isolation
+      - name: Test all scalar-fix targets with network isolation
         run: |
           unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
+          test "$(git rev-parse HEAD)" = "$FIX_COMMIT"
+          bazel test //... --spawn_strategy=linux-sandbox --strategy=TestRunner=linux-sandbox --test_output=errors
+      - name: Verify completed quaternion build checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FIX_COMMIT: 0bb9c4cf5da6e76241166a5f70a2f6e89f415e56
+          BUILD_RUN_ID: '35811317656'
+          BUILD_RUN_COMMIT: f21f0048dc523d748352d546d35fd893c37baf33
+        run: |
+          actual_head=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" --jq .head_sha)
+          test "$actual_head" = "$BUILD_RUN_COMMIT"
+          gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/verify-bugfix.yml?ref=$BUILD_RUN_COMMIT" \
+            -H 'Accept: application/vnd.github.raw+json' > "$RUNNER_TEMP/prior-quaternion-build-workflow.yml"
+          grep -Fxq "          ref: $FIX_COMMIT" "$RUNNER_TEMP/prior-quaternion-build-workflow.yml"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID/jobs" > "$RUNNER_TEMP/prior-quaternion-build-jobs.json"
+          jq -e '[.jobs[].steps[] | select(.name == "Regression tests" or .name == "Build the published CI artifacts" or .name == "Build all targets")] | length == 3 and all(.[]; .status == "completed" and .conclusion == "success")' "$RUNNER_TEMP/prior-quaternion-build-jobs.json"
+          echo "Verified successful quaternion build checks: https://github.com/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID"
+      - name: Check out the exact quaternion-fix commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: 0bb9c4cf5da6e76241166a5f70a2f6e89f415e56
+          lfs: true
+      - name: Test all quaternion-fix targets with network isolation
+        run: |
+          unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
+          test "$(git rev-parse HEAD)" = 0bb9c4cf5da6e76241166a5f70a2f6e89f415e56
           bazel test //... --spawn_strategy=linux-sandbox --strategy=TestRunner=linux-sandbox --test_output=errors
       - name: Report remaining disk space
         if: always()
