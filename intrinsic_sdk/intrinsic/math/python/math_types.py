@@ -23,10 +23,7 @@ Utility functions:
 """
 
 from collections import abc
-from typing import Iterable
-from typing import Text
-from typing import Tuple
-from typing import Union
+from typing import Iterable, Text, Tuple, Union
 
 import numpy as np
 
@@ -102,11 +99,11 @@ def get_matching_arrays(
   """
   if is_scalar(rhs):
     lhs = np.asarray(lhs)
-    rhs = np.full_like(lhs, rhs)
+    rhs = np.full(lhs.shape, rhs)
   else:
     rhs = np.asarray(rhs)
     if is_scalar(lhs):
-      lhs = np.full_like(rhs, lhs)
+      lhs = np.full(rhs.shape, lhs)
     else:
       lhs = np.asarray(lhs)
   if lhs.shape != rhs.shape:

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("//bazel:python.bzl", "py_library")
+load("//bazel:python.bzl", "py_library", "py_test")
 
 package(default_visibility = [
     "//visibility:public",
@@ -67,6 +67,16 @@ py_library(
     name = "math_types",
     srcs = ["math_types.py"],
     deps = ["@ai_intrinsic_sdks_pip_deps//numpy"],
+)
+
+py_test(
+    name = "math_types_test",
+    size = "small",
+    srcs = ["math_types_test.py"],
+    deps = [
+        ":math_types",
+        "@ai_intrinsic_sdks_pip_deps//numpy",
+    ],
 )
 
 py_library(
