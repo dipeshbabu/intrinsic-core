@@ -1,4 +1,4 @@
-name: Confirm reflection regression before full validation
+name: Verify open PR numerical edge cases
 
 on:
   workflow_dispatch:
@@ -7,34 +7,68 @@ permissions:
   contents: read
 
 jobs:
-  regression:
+  math_validation:
+    name: ${{ matrix.name }} edge cases and math suites
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Scalar
+            commit: f792094074ecb102024cfc92cc5c8c7b4432c3f8
+            previous: 3196f4e6a6e17b33e5b73f2310c58f0e207fef39
+            source: math_types.py
+            files: math_types.py math_types_test.py
+            target: math_types_test
+            failure_pattern: 'ERROR: test_get_matching_arrays_(empty_shape|preserves_scalar_dtype_zero_dimensional_array)'
+          - name: Quaternion
+            commit: 68a6b01546dfbaca8d162cd21e7c4dd12336fc22
+            previous: 189b2df632d6a063b57efd83d4313b279d3cba20
+            source: quaternion.py
+            files: quaternion.py quaternion_test.py rotation3_test.py
+            target: quaternion_test
+            failure_pattern: '(ERROR|FAIL): test_check_non_zero_(accepts_extreme_magnitudes|rejects_extreme_magnitudes|rejects_invalid_tolerance|reports_stable_norm)'
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          ref: 9171c96a89b4ee3db41fc6fd339cc085c7e1d761
+          ref: ${{ matrix.commit }}
           fetch-depth: 0
-      - uses: bazel-contrib/setup-bazel@0.14.0
+      - name: Verify exact source and formatting
+        env:
+          EXPECTED_COMMIT: ${{ matrix.commit }}
+          PREVIOUS_COMMIT: ${{ matrix.previous }}
+          CHANGED_FILES: ${{ matrix.files }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          git merge-base --is-ancestor "$PREVIOUS_COMMIT" HEAD
+          git diff --check "$PREVIOUS_COMMIT" HEAD
+          cd intrinsic_sdk/intrinsic/math/python
+          pipx run --spec pyink==25.12.0 pyink --check --line-length=80 --pyink-indentation=2 --pyink-use-majority-quotes $CHANGED_FILES
+          pipx run --spec isort==6.0.1 isort --check-only --profile=google --project intrinsic $CHANGED_FILES
+      - name: Set up Bazel
+        uses: bazel-contrib/setup-bazel@0.14.0
         with:
           bazelisk-cache: true
-      - name: Verify source and targeted regressions
+      - name: Build and test every math target
         run: |
-          test "$(git rev-parse HEAD)" = 9171c96a89b4ee3db41fc6fd339cc085c7e1d761
-          bazel test //intrinsic_sdk/intrinsic/math/python:rotation3_test \
-            //intrinsic_sdk/intrinsic/math/python:pose3_test \
+          bazel test //intrinsic_sdk/intrinsic/math/python:all \
             --spawn_strategy=processwrapper-sandbox --test_output=errors
-      - name: Confirm original implementation accepts reflections
+      - name: Confirm regressions fail on the previous PR implementation
+        env:
+          PREVIOUS_COMMIT: ${{ matrix.previous }}
+          SOURCE: ${{ matrix.source }}
+          TARGET: ${{ matrix.target }}
+          FAILURE_PATTERN: ${{ matrix.failure_pattern }}
         run: |
           set -euo pipefail
-          source_path=intrinsic_sdk/intrinsic/math/python/rotation3.py
+          source_path="intrinsic_sdk/intrinsic/math/python/$SOURCE"
           trap 'git restore -- "$source_path"' EXIT
-          git show "979c8ff1f71b0c8a63d546adce8d974b7c39e482:$source_path" > "$source_path"
+          git show "$PREVIOUS_COMMIT:$source_path" > "$source_path"
           set +e
-          bazel test //intrinsic_sdk/intrinsic/math/python:rotation3_test \
-            //intrinsic_sdk/intrinsic/math/python:pose3_test \
-            --spawn_strategy=processwrapper-sandbox --test_output=errors 2>&1 | tee "$RUNNER_TEMP/reflection-regression.log"
+          bazel test "//intrinsic_sdk/intrinsic/math/python:$TARGET" \
+            --spawn_strategy=processwrapper-sandbox --test_output=errors 2>&1 | tee "$RUNNER_TEMP/regression.log"
           test_status=${PIPESTATUS[0]}
           set -e
           test "$test_status" = 3
-          grep -E 'FAIL: test_from_matrix.*rejects_reflection' "$RUNNER_TEMP/reflection-regression.log"
+          grep -E "$FAILURE_PATTERN" "$RUNNER_TEMP/regression.log"
