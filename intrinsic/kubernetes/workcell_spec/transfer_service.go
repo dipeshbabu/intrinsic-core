@@ -356,7 +356,9 @@ func (s *TransferService) GetWorkcellStatus(ctx context.Context, req *epb.Empty)
 		ClusterName: s.clusterInfo.Name,
 	}
 
-	if val, exists := ca.Spec.Chart.Values["app_deployment_id"]; !exists || val == "" {
+	solutionDeployID, _ := ca.Spec.Chart.Values["solution_deployment_id"].(string)
+	appDeployID, _ := ca.Spec.Chart.Values["app_deployment_id"].(string)
+	if solutionDeployID == "" && appDeployID == "" {
 		response.Status = sipb.GetWorkcellStatusResponse_UNKNOWN
 		response.ErrorReason = "CA Controller: Only initialization chart but no solution is applied"
 		return response, nil

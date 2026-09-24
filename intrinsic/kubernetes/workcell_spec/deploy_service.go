@@ -99,8 +99,10 @@ import (
 const deploymentPrefix = "deployment-v1"
 
 var (
-	uuidNew              = uuid.New
-	userEmailFromContext = func(ctx context.Context) (string, error) {
+	newAppDeploymentID      = uuid.New
+	newSolutionDeploymentID = uuid.New
+	newOperationName        = uuid.New
+	userEmailFromContext    = func(ctx context.Context) (string, error) {
 		return "", nil
 	}
 )
@@ -443,6 +445,14 @@ func (s *DeployService) DeployApplication(ctx context.Context, req *deploypb.Dep
 		return nil
 	}
 
+	if req.GetApplication() == nil {
+		req.Application = &apb.Application{}
+	}
+	if req.GetApplication().GetMetadata() == nil {
+		req.GetApplication().Metadata = &commonpb.Metadata{}
+	}
+	req.GetApplication().Metadata.SolutionDeploymentId = newSolutionDeploymentID()
+
 	if _, err := s.deployApplication(ctx, req.GetApplication(), nil, nil, deployOpts{validate: validateDependencies}); err != nil {
 		log.ErrorContextf(ctx, "deployApplication failed: %v", err)
 		return nil, err
@@ -470,6 +480,10 @@ func (s *DeployService) deployApplication(
 	if cat := app.GetMetadata().GetCategory(); cat != commonpb.Metadata_INSTANCE && cat != commonpb.Metadata_BRANCH {
 		log.ErrorContextf(ctx, "invalid app category of %v", cat)
 		return nil, status.Errorf(codes.Internal, "request to deploy an application of category %q, want INSTANCE or BRANCH", cat)
+	}
+	if app.GetMetadata().GetSolutionDeploymentId() == "" {
+		log.ErrorContext(ctx, "missing solution deployment ID")
+		return nil, status.Error(codes.Internal, "request to deploy an application without a solution deployment ID")
 	}
 
 	span.AddAttributes(
@@ -538,13 +552,14 @@ func (s *DeployService) deployApplication(
 		log.ErrorContextf(ctx, "render.IsSimulated failed: %v", err)
 		return nil, status.Errorf(codes.Internal, "render workcell spec: %v", err)
 	}
-	appDeploymentID := uuidNew()
+	appDeploymentID := newAppDeploymentID()
 	ws, err := render.WorkcellSpecFromApplication(&render.ApplicationParams{
 		DefaultWorkcellSpec:     defaultWorkcellSpec,
 		ResourceInstances:       app.GetResources().GetResourceInstances(),
 		ResourceTypes:           rts,
 		SkillDeploymentRuntimes: slices.Collect(xiter.Filter(pointer.NotNil, xiter.Map(render.ResourceTypeRuntimeToSkillDeploymentData, maps.Values(rts)))),
 		AppDeploymentID:         appDeploymentID,
+		SolutionDeploymentID:    app.GetMetadata().GetSolutionDeploymentId(),
 		Simulated:               simulated,
 		ClusterParams:           s.clusterParams,
 		InitDataFilesParams:     s.initDataFiles,
@@ -615,6 +630,7 @@ func (s *DeployService) deployApplication(
 		return nil, status.Errorf(codes.Internal, "failed to convert local state to a solution: %v", err)
 	}
 	return &solutiondeploymentpb.SolutionDeployment{
+		Name:          app.GetMetadata().GetSolutionDeploymentId(),
 		SolutionId:    app.GetMetadata().GetName(),
 		OperationMode: app.GetOperationMode(),
 		Solution:      solution,
@@ -901,7 +917,7 @@ func (s *DeployService) CreateSolutionDeploymentFromVersionedSolution(ctx contex
 
 func (s *DeployService) scheduleVersionedSolution(ctx context.Context, solutionID string, operationMode opmodepb.OperationMode) (*operations.Operation, error) {
 	op := operations.New(&lropb.Operation{
-		Name: path.Join(deploymentPrefix, "create-from-versioned-solution", uuidNew()),
+		Name: path.Join(deploymentPrefix, "create-from-versioned-solution", newOperationName()),
 	})
 	if err := op.SetMetadata(&solutiondeploymentpb.CreateSolutionDeploymentFromVersionedSolutionMetadata{}); err != nil {
 		return nil, err
@@ -943,6 +959,7 @@ func (s *DeployService) scheduleVersionedSolution(ctx context.Context, solutionI
 			},
 			OperationMode: operationMode,
 		})
+		app.Metadata.SolutionDeploymentId = newSolutionDeploymentID()
 
 		var validateDependencies deployValidator = func(ctx context.Context, app *apb.Application, rts map[string]*rtrpb.ResourceTypeRuntime) error {
 			es, err := s.validateDependencies(ctx, app, rts)
@@ -988,7 +1005,7 @@ func (s *DeployService) DeleteSolutionDeployment(ctx context.Context, req *solut
 
 func (s *DeployService) scheduleDeleteSolutionDeployment(ctx context.Context) (*operations.Operation, error) {
 	op := operations.New(&lropb.Operation{
-		Name: path.Join(deploymentPrefix, "delete", uuidNew()),
+		Name: path.Join(deploymentPrefix, "delete", newOperationName()),
 	})
 	if err := op.SetMetadata(&solutiondeploymentpb.DeleteSolutionDeploymentMetadata{}); err != nil {
 		return nil, err
@@ -1012,28 +1029,41 @@ func (s *DeployService) UpdateSolutionDeployment(ctx context.Context, req *solut
 	defer span.End()
 
 	op := operations.New(&lropb.Operation{
-		Name: path.Join(deploymentPrefix, "update", uuidNew()),
+		Name: path.Join(deploymentPrefix, "update", newOperationName()),
 	})
 	if err := op.SetMetadata(&solutiondeploymentpb.UpdateSolutionDeploymentMetadata{}); err != nil {
 		return nil, err
 	}
 
 	if err := s.runner.Schedule(ctx, op, func(ctx context.Context) (proto.Message, error) {
-		if !req.GetAllowMissing() {
-			// We could potentially use the response here and the optimistic
-			// concurrency of HSS as a way of avoiding simultaneous calls trying to
-			// simultaneously mutate state.
-			//
-			// This check runs within the scheduled operation to avoid operating on
-			// stale information.  It's not super important for this request because
-			// all we do with that information is exit early, rather than using any
-			// of the returned data.  However, I'm reusing the structure of
-			// operations on state go in the queue that we've used for other asset
-			// services.
-			if _, err := s.applicationClient.GetCurrentApplication(ctx, &aspb.GetCurrentApplicationRequest{}); status.Code(err) == codes.NotFound {
+		var solutionDeploymentID string
+		var appRunning bool
+		// Right now we only use the response here to get the solution
+		// deployment id.  We could potentially use more of the response,
+		// particularly the revision token as a way of using the optimistic
+		// concurrency of HSS to avoid simultaneous calls mutating state in
+		// different ways.  This check runs within the scheduled operation to
+		// avoid operating on stale information.
+		if currApp, err := s.applicationClient.GetCurrentApplication(ctx, &aspb.GetCurrentApplicationRequest{}); status.Code(err) == codes.NotFound {
+			if !req.GetAllowMissing() {
 				return nil, status.Error(codes.NotFound, "no solution deployment is running and allow_missing was not specified")
 			}
+		} else if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to get current application: %v", err)
+		} else {
+			appRunning = true
+			solutionDeploymentID = currApp.GetApplication().GetMetadata().GetSolutionDeploymentId()
 		}
+		if reqName := req.GetSolutionDeployment().GetName(); reqName != "" && reqName != solutionDeploymentID {
+			if !appRunning {
+				return nil, status.Errorf(codes.FailedPrecondition, "solution deployment name %q specified but no solution deployment is running", reqName)
+			}
+			return nil, status.Errorf(codes.FailedPrecondition, "solution deployment name %q does not match current solution deployment %q", reqName, solutionDeploymentID)
+		}
+		if solutionDeploymentID == "" {
+			solutionDeploymentID = newSolutionDeploymentID()
+		}
+
 		app, err := asApplication(req.GetSolutionDeployment().GetSolution())
 		if err != nil {
 			log.ErrorContextf(ctx, "failed to convert solution to application: %v", err)
@@ -1049,6 +1079,7 @@ func (s *DeployService) UpdateSolutionDeployment(ctx context.Context, req *solut
 			app.Metadata.Category = commonpb.Metadata_BRANCH
 			app.Metadata.Name = solutionID
 		}
+		app.Metadata.SolutionDeploymentId = solutionDeploymentID
 		app.OperationMode = req.GetSolutionDeployment().GetOperationMode()
 
 		var validateDependencies deployValidator = func(ctx context.Context, app *apb.Application, rts map[string]*rtrpb.ResourceTypeRuntime) error {
@@ -1115,6 +1146,7 @@ func (s *DeployService) GetSolutionDeployment(ctx context.Context, req *solution
 
 	log.InfoContext(ctx, "Returning solution deployment")
 	return &solutiondeploymentpb.SolutionDeployment{
+		Name:          app.GetMetadata().GetSolutionDeploymentId(),
 		SolutionId:    app.GetMetadata().GetName(),
 		OperationMode: app.GetOperationMode(),
 		Solution:      solution,
@@ -1192,6 +1224,7 @@ func asSolution(app *apb.Application, rts map[string]*rtrpb.ResourceTypeRuntime)
 
 func basicSolutionDeploymentView(sd *solutiondeploymentpb.SolutionDeployment) *solutiondeploymentpb.SolutionDeployment {
 	return &solutiondeploymentpb.SolutionDeployment{
+		Name:          sd.GetName(),
 		Solution:      basicSolutionView(sd.GetSolution()),
 		SolutionId:    sd.GetSolutionId(),
 		OperationMode: sd.GetOperationMode(),
