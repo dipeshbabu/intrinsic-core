@@ -16,9 +16,10 @@
 
 from absl.testing import absltest
 from absl.testing import parameterized
+import numpy as np
+
 from intrinsic.math.python import math_test
 from intrinsic.math.python import math_types
-import numpy as np
 
 # Test error message for verification of err_msg parameter.
 _TEST_ERROR_MESSAGE = 'This is a test error message.'
@@ -137,6 +138,68 @@ class MathTypesTest(math_test.TestCase, parameterized.TestCase):
 
     self.assert_all_equal(lhs_array, np.asarray(lhs))
     self.assert_all_equal(rhs_array, np.asarray(rhs))
+
+  @parameterized.named_parameters(
+      ('zero_dimensional_array', np.array(0.5)),
+      ('float32', np.float32(0.5)),
+      ('uint64', np.uint64(2**63 + 1)),
+      ('large_integer', 2**80),
+  )
+  def test_get_matching_arrays_preserves_scalar_dtype(self, scalar):
+    values = np.array([1, 2], dtype=np.int8)
+    expected = np.array([scalar, scalar])
+    for scalar_first in (False, True):
+      with self.subTest(scalar_first=scalar_first):
+        operands = (scalar, values) if scalar_first else (values, scalar)
+        lhs, rhs = math_types.get_matching_arrays(*operands)
+        expanded, array = (lhs, rhs) if scalar_first else (rhs, lhs)
+
+        np.testing.assert_array_equal(expanded, expected)
+        self.assertEqual(expanded.dtype, np.asarray(scalar).dtype)
+        np.testing.assert_array_equal(array, [1, 2])
+        np.testing.assert_array_equal(values, [1, 2])
+
+  @parameterized.parameters((0,), (2, 0, 3))
+  def test_get_matching_arrays_empty_shape(self, *shape):
+    values = np.empty(shape, dtype=np.int8)
+    for operands in ((values, np.array(0.5)), (np.array(0.5), values)):
+      with self.subTest(operands=operands):
+        lhs, rhs = math_types.get_matching_arrays(*operands)
+        self.assertEqual(lhs.shape, shape)
+        self.assertEqual(rhs.shape, shape)
+        self.assertEqual(lhs.size, 0)
+        self.assertEqual(rhs.size, 0)
+
+  @parameterized.parameters(-0.0, np.inf, -np.inf, np.nan)
+  def test_get_matching_arrays_preserves_special_float_values(self, scalar):
+    for operands in (([1, 2], scalar), (scalar, [1, 2])):
+      with self.subTest(operands=operands):
+        lhs, rhs = math_types.get_matching_arrays(*operands)
+        expanded = lhs if math_types.is_scalar(operands[0]) else rhs
+        np.testing.assert_array_equal(expanded, [scalar, scalar])
+        np.testing.assert_array_equal(np.signbit(expanded), np.signbit(scalar))
+
+  def test_get_matching_arrays_preserves_read_only_array(self):
+    values = np.arange(6).reshape(2, 3).T
+    values.flags.writeable = False
+    array, expanded = math_types.get_matching_arrays(values, 0.5)
+
+    np.testing.assert_array_equal(array, [[0, 3], [1, 4], [2, 5]])
+    self.assertTrue(expanded.flags.writeable)
+    expanded[0, 0] = 2.5
+    np.testing.assert_array_equal(values, [[0, 3], [1, 4], [2, 5]])
+    self.assertFalse(values.flags.writeable)
+
+  def test_get_matching_arrays_does_not_broadcast_non_scalar_arrays(self):
+    for operands in (([0.5], [1, 2]), ([1, 2], [0.5])):
+      with self.subTest(operands=operands):
+        self.assertRaisesRegex(
+            ValueError,
+            math_types.SHAPE_MISMATCH_MESSAGE + '.*custom shape',
+            math_types.get_matching_arrays,
+            *operands,
+            err_msg='custom shape',
+        )
 
   def test_get_matching_arrays_wrong_size(self):
     """Checks when inputs have different numbers of elements."""

@@ -77,14 +77,11 @@ def get_matching_arrays(
 ) -> Tuple[np.ndarray, np.ndarray]:
   """Converts both inputs to numpy arrays with the same shape.
 
-  If either input is a scalar, it will be converted to a constant array with
-  the same shape as the other input.  If both inputs are scalars, they will
-  both be converted to arrays containing a single value.
+  If either input is a scalar or a zero-dimensional array, it will be converted
+  to a constant array with the same shape as the other input, preserving its
+  own dtype. If both inputs are scalars, the output arrays are zero-dimensional.
 
   If they are not scalars, the inputs must have the same shape.
-
-  If they are both scalars, the inputs will be converted to arrays with a
-  single element.
 
   Args:
     lhs: Left hand side scalar or array argument.
@@ -97,15 +94,12 @@ def get_matching_arrays(
   Raises:
     ValueError: If the lhs and rhs arrays not have the same shape.
   """
-  if is_scalar(rhs):
-    lhs = np.asarray(lhs)
-    rhs = np.full(lhs.shape, rhs)
-  else:
-    rhs = np.asarray(rhs)
-    if is_scalar(lhs):
-      lhs = np.full(rhs.shape, lhs)
-    else:
-      lhs = np.asarray(lhs)
+  lhs = np.asarray(lhs)
+  rhs = np.asarray(rhs)
+  if lhs.ndim == 0 and rhs.ndim != 0:
+    lhs = np.full(rhs.shape, lhs, dtype=lhs.dtype)
+  elif rhs.ndim == 0 and lhs.ndim != 0:
+    rhs = np.full(lhs.shape, rhs, dtype=rhs.dtype)
   if lhs.shape != rhs.shape:
     raise ValueError(
         'lhs and rhs should have the same dimension: %s != %s; %s'
