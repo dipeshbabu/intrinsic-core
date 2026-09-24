@@ -520,7 +520,6 @@ cc_library(
         "//intrinsic/executive/clips_cpp:clips_protobuf",
         "//intrinsic/executive/clips_cpp:clips_trace_span_manager",
         "//intrinsic/skills/internal:conflicts",
-        "//intrinsic/skills/proto:prediction_cc_proto",
         "//intrinsic/stats:scoped_span",
         "//intrinsic/util:eigen",
         "//intrinsic/util/grpc",

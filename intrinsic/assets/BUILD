@@ -259,6 +259,7 @@ go_library(
         "//intrinsic/assets/services:servicebundle",
         "//intrinsic/config/proto:application_go_proto",
         "//intrinsic/skills:skillbundle",
+        "//intrinsic/util/proto:descriptor",
         "@com_github_google_safearchive//tar",
         "@intrinsic_apis//intrinsic/assets/catalog/proto/v1:release_metadata_go_proto",
         "@intrinsic_apis//intrinsic/assets/data/proto/v1:data_asset_go_proto",

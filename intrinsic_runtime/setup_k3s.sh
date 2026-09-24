@@ -193,16 +193,36 @@ EOF
     fi
 }
 
+function configure_sysctl() {
+    local sysctl_config="/etc/sysctl.d/90-inotify.conf"
+
+    sudo mkdir -p /etc/sysctl.d
+    sudo tee "${sysctl_config}" > /dev/null << 'EOF'
+fs.inotify.max_user_watches = 524288
+fs.inotify.max_user_instances = 1024
+EOF
+
+    run_silent sudo sysctl -p "${sysctl_config}"
+}
+
 function run_silent() {
+    if [[ "${EUID}" -ne 0 ]]; then
+        sudo -v
+    fi
+
     local log_file
     log_file=$(mktemp "${WORK_DIR}/cmd_XXXXXX.log")
 
-    if ! "$@" > "${log_file}" 2>&1; then
+    trap 'echo ""; echo "Command interrupted: $*"; echo "Logs:"; cat "${log_file}"; exit 130' INT TERM
+
+    if ! "$@" < /dev/null > "${log_file}" 2>&1; then
+        trap - INT TERM
         echo "Command failed: $*"
         echo "Logs:"
         cat "${log_file}"
         exit 1
     fi
+    trap - INT TERM
 }
 
 function main() {
@@ -219,6 +239,7 @@ function main() {
     local ISTIO_CONFIG_FILE="${WORK_DIR}/istio_config.yaml"
     local GATEWAY_CONFIG_FILE="${WORK_DIR}/gateway_config.yaml"
 
+    configure_sysctl
     configure_containerd
 
     local k3s_args=("--disable=traefik" "--write-kubeconfig-mode=0640")
