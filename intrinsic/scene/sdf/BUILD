@@ -20,7 +20,6 @@ package(
             "//intrinsic/scene:__subpackages__",
             "//intrinsic/simulation:__subpackages__",
             "//intrinsic/world/conversion/sdf:__subpackages__",
-            "//incode/experimental:dont_depend_on_experimental_from_outside",
         ],
 )
 
@@ -134,10 +133,7 @@ cc_library(
     name = "scene_object_to_zipped_sdf",
     srcs = ["scene_object_to_zipped_sdf.cc"],
     hdrs = ["scene_object_to_zipped_sdf.h"],
-    visibility = [
-        "//intrinsic/scene/service:__subpackages__",
-        "//incode/experimental:dont_depend_on_experimental_from_outside",
-    ],
+    visibility = ["//intrinsic/scene/service:__subpackages__"],
     deps = [
         ":scene_object_to_sdf",
         "//intrinsic/util/status:status_macros",
