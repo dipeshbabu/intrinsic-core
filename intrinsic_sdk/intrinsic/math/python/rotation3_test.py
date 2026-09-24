@@ -18,12 +18,13 @@ import math
 from absl import logging
 from absl.testing import absltest
 from absl.testing import parameterized
+import numpy as np
+
 from intrinsic.math.python import math_test
 from intrinsic.math.python import math_types
 from intrinsic.math.python import quaternion
 from intrinsic.math.python import rotation3
 from intrinsic.math.python import vector_util
-import numpy as np
 
 _ARCTAN_HALF = 2 * math.degrees(math.atan(0.5))  # 26.5650512
 
@@ -63,6 +64,19 @@ class Rotation3Test(parameterized.TestCase, math_test.TestCase):
         norm_epsilon=0.1,
         err_msg='rotation tolerance',
     )
+
+  @parameterized.parameters(-1.0, np.nan, np.inf)
+  def test_check_valid_rejects_invalid_tolerance(self, tolerance):
+    self.assertRaisesRegex(
+        ValueError,
+        'norm_epsilon.*rotation tolerance',
+        rotation3.Rotation3.identity().check_valid,
+        norm_epsilon=tolerance,
+        err_msg='rotation tolerance',
+    )
+
+  def test_check_valid_accepts_quaternion_with_large_finite_components(self):
+    rotation3.Rotation3.from_xyzw([1e200] * 4).check_valid(norm_epsilon=1e200)
 
   def _rotation_matrix(self, axis, angle):
     """Returns the 3x3 rotation matrix defined by axis and angle."""
