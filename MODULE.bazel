@@ -113,6 +113,7 @@ use_repo(
     "com_github_jedib0t_go_pretty_v6",  
     "com_github_jhump_protoreflect_v2",  
     "com_github_kballard_go_shellquote",  
+    "com_github_klauspost_compress",
     "com_github_kylelemons_godebug",  
     "com_github_manifoldco_promptui",  
     "com_github_masterminds_semver",
@@ -548,7 +549,7 @@ bazel_dep(name = "rules_jsonnet", version = "0.7.2")
 bazel_dep(name = "rules_license", version = "1.0.0")
 bazel_dep(name = "rules_pkg", version = "1.3.0")
 bazel_dep(name = "rules_qt", version = "0.0.7")  
-bazel_dep(name = "rules_shell", version = "0.8.0")  
+bazel_dep(name = "rules_shell", version = "0.8.0")
 bazel_dep(name = "sdformat", version = "16.1.0")
 bazel_dep(name = "soplex", version = "8.0.3")  # bumping transitive dependency to update boost to 1.89.0
 bazel_dep(name = "stb", version = "0.0.0-20251026-f1c79c0")
@@ -630,8 +631,12 @@ use_repo(
 # Containers #
 ##############
 
+bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
 bazel_dep(name = "rules_oci", version = "2.3.0")
 bazel_dep(name = "rules_helm", version = "0.32.0")  
+
+aspect_toolchains = use_extension("@aspect_bazel_lib//lib:extensions.bzl", "toolchains")
+use_repo(aspect_toolchains, "zstd_linux_amd64")
 
 oci = use_extension("@rules_oci//oci:extensions.bzl", "oci")
 
