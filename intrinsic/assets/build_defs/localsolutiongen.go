@@ -25,7 +25,6 @@ import (
 	"intrinsic/assets/build_defs/localsolution"
 	"intrinsic/production/intrinsic"
 	intrinsicflag "intrinsic/util/flag"
-	"intrinsic/util/go/build"
 	"intrinsic/util/proto/protoio"
 
 	log "github.com/golang/glog"
@@ -142,7 +141,6 @@ func main() {
 		DefaultOperationMode: defaultOpMode,
 		DisplayName:          *displayName,
 		BuildTarget:          *buildTarget,
-		Version:              build.Label(),
 	})
 	if err != nil {
 		log.Exitf("could not create LocalSolution proto: %v", err)

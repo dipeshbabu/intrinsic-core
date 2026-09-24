@@ -61,7 +61,6 @@ type Options struct {
 	DefaultOperationMode opmodepb.OperationMode
 	DisplayName          string
 	BuildTarget          string
-	Version              string
 }
 
 // New creates a new LocalSolution proto.
@@ -155,6 +154,5 @@ func New(opts Options) (*assetpb.LocalSolution, error) {
 		DefaultOperationMode: opts.DefaultOperationMode,
 		DisplayName:          opts.DisplayName,
 		BuildTarget:          opts.BuildTarget,
-		Version:              opts.Version,
 	}, nil
 }

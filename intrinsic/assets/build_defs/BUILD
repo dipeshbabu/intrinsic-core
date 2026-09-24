@@ -101,7 +101,6 @@ go_binary(
         ":localsolution",
         "//intrinsic/production:intrinsic",
         "//intrinsic/util:flag",
-        "//intrinsic/util/go:build",
         "//intrinsic/util/proto:protoio",
         "//intrinsic/world/proto:object_world_updates_go_proto",
         "@com_github_golang_glog//:go_default_library",
