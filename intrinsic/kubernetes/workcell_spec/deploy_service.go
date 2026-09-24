@@ -192,8 +192,10 @@ func (s *DeployService) StartIdleWorkcellSpec(ctx context.Context) error {
 	// deployment with defaults.
 	if ca, err := s.transferService.CurrentExclusiveChart(ctx); err != nil {
 		return fmt.Errorf("failed to get current exclusive chart: %w", err)
-	} else if ca != nil {
-		log.InfoContextf(ctx, "Workcell spec already exists, skipping StartIdleWorkcellSpec")
+	} else if running, err := transfersvc.IsSolutionRunning(ca); err != nil {
+		return fmt.Errorf("failed to check running state of exclusive chart: %w", err)
+	} else if running {
+		log.InfoContextf(ctx, "Solution deployment already exists, skipping StartIdleWorkcellSpec")
 		return nil
 	}
 

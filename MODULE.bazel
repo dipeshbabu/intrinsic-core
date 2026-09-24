@@ -455,7 +455,7 @@ bazel_dep(name = "ceres-solver", version = "2.2.0", repo_name = "com_google_cere
 bazel_dep(name = "clarabel", version = "0.11.1.bcr.1")  
 bazel_dep(name = "cli11", version = "2.6.2")  
 bazel_dep(name = "coacd", version = "1.0.13.bcr.1")  
-bazel_dep(name = "com_github_mvukov_rules_ros2", version = "0.0.0-20260118-78d85ff")
+bazel_dep(name = "com_github_mvukov_rules_ros2", version = "0.0.0-20260718-352a8e3")
 bazel_dep(name = "cpp-httplib", version = "0.46.0")  
 bazel_dep(name = "cppitertools", version = "2.2")  
 bazel_dep(name = "cppregpattern", version = "1.0.1")  
@@ -528,7 +528,7 @@ bazel_dep(name = "opengl-registry", version = "0.0.0-20250707", repo_name = "ope
 bazel_dep(name = "openmesh", version = "11.0")  
 bazel_dep(name = "opentelemetry-cpp", version = "1.19.0", repo_name = "io_opentelemetry_cpp")  
 bazel_dep(name = "opentelemetry-proto", version = "1.8.0", repo_name = "opentelemetry_proto")  
-bazel_dep(name = "openusd", version = "25.11.bcr.3")  
+bazel_dep(name = "openusd", version = "25.11.bcr.3")
 bazel_dep(name = "or-tools", version = "9.15", repo_name = "or_tools")
 bazel_dep(name = "osqp-cpp", version = "0.0.0-20231004-4343373.bcr.2")  
 bazel_dep(name = "pcl", version = "1.15.1.bcr.4", repo_name = "com_github_pcl")  
@@ -973,16 +973,6 @@ use_repo(
     "ros2_rmw",
     "ros2_rosbag2",
     "ros2_rosidl",
-    "ros2_rosidl_typesupport",
-)
-
-# Temporary patch to make rclpy compatible with our LLVM toolchain.
-# Can be removed when https://github.com/bazelbuild/bazel-central-registry/pull/9746
-# is merged and the new version is available in the BCR.
-single_version_override(
-    module_name = "com_github_mvukov_rules_ros2",
-    patch_strip = 1,
-    patches = ["//third_party/rules_ros2:rules_ros2_atomic.patch"],
 )
 
 single_version_override(

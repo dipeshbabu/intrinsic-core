@@ -1298,6 +1298,13 @@ void ClipsSkillDispatcher::StartSkillProjection(
                 behavior_call_proto_internal_data, project_timeout,
                 context_proto);
 
+        // A skill that does not implement the Predict RPC answers
+        // UNIMPLEMENTED. That is equivalent to "no prediction" and must not
+        // fail the projection.
+        if (absl::IsUnimplemented(predict_result.status())) {
+          predict_result = intrinsic_proto::skills::PredictResult();
+        }
+
         {
           absl::MutexLock clips_lock(*assert_facade_->GetClipsMutex());
 
@@ -1310,8 +1317,7 @@ void ClipsSkillDispatcher::StartSkillProjection(
             clips::ProtoMessageId es_proto_id =
                 proto_manager_->AddGeneratedProto(skill_es);
 
-            // Assert fact to indicate success (if unimplemented) or
-            // failure
+            // Assert fact to indicate failure.
             ReportClipsStatus(assert_facade_, action_id, kSkillStatusFailed,
                               {.message = predict_result.status().ToString(),
                                .extended_status_proto_id = es_proto_id});
