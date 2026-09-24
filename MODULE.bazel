@@ -113,6 +113,7 @@ use_repo(
     "com_github_jedib0t_go_pretty_v6",  
     "com_github_jhump_protoreflect_v2",  
     "com_github_kballard_go_shellquote",  
+    "com_github_klauspost_compress",
     "com_github_kylelemons_godebug",  
     "com_github_manifoldco_promptui",  
     "com_github_masterminds_semver",
@@ -454,7 +455,7 @@ bazel_dep(name = "ceres-solver", version = "2.2.0", repo_name = "com_google_cere
 bazel_dep(name = "clarabel", version = "0.11.1.bcr.1")  
 bazel_dep(name = "cli11", version = "2.6.2")  
 bazel_dep(name = "coacd", version = "1.0.13.bcr.1")  
-bazel_dep(name = "com_github_mvukov_rules_ros2", version = "0.0.0-20260118-78d85ff")
+bazel_dep(name = "com_github_mvukov_rules_ros2", version = "0.0.0-20260718-352a8e3")
 bazel_dep(name = "cpp-httplib", version = "0.46.0")  
 bazel_dep(name = "cppitertools", version = "2.2")  
 bazel_dep(name = "cppregpattern", version = "1.0.1")  
@@ -527,7 +528,7 @@ bazel_dep(name = "opengl-registry", version = "0.0.0-20250707", repo_name = "ope
 bazel_dep(name = "openmesh", version = "11.0")  
 bazel_dep(name = "opentelemetry-cpp", version = "1.19.0", repo_name = "io_opentelemetry_cpp")  
 bazel_dep(name = "opentelemetry-proto", version = "1.8.0", repo_name = "opentelemetry_proto")  
-bazel_dep(name = "openusd", version = "25.11.bcr.3")  
+bazel_dep(name = "openusd", version = "25.11.bcr.3")
 bazel_dep(name = "or-tools", version = "9.15", repo_name = "or_tools")
 bazel_dep(name = "osqp-cpp", version = "0.0.0-20231004-4343373.bcr.2")  
 bazel_dep(name = "pcl", version = "1.15.1.bcr.4", repo_name = "com_github_pcl")  
@@ -548,7 +549,7 @@ bazel_dep(name = "rules_jsonnet", version = "0.7.2")
 bazel_dep(name = "rules_license", version = "1.0.0")
 bazel_dep(name = "rules_pkg", version = "1.3.0")
 bazel_dep(name = "rules_qt", version = "0.0.7")  
-bazel_dep(name = "rules_shell", version = "0.8.0")  
+bazel_dep(name = "rules_shell", version = "0.8.0")
 bazel_dep(name = "sdformat", version = "16.1.0")
 bazel_dep(name = "soplex", version = "8.0.3")  # bumping transitive dependency to update boost to 1.89.0
 bazel_dep(name = "stb", version = "0.0.0-20251026-f1c79c0")
@@ -630,8 +631,12 @@ use_repo(
 # Containers #
 ##############
 
+bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
 bazel_dep(name = "rules_oci", version = "2.3.0")
 bazel_dep(name = "rules_helm", version = "0.32.0")  
+
+aspect_toolchains = use_extension("@aspect_bazel_lib//lib:extensions.bzl", "toolchains")
+use_repo(aspect_toolchains, "zstd_linux_amd64")
 
 oci = use_extension("@rules_oci//oci:extensions.bzl", "oci")
 
@@ -968,16 +973,6 @@ use_repo(
     "ros2_rmw",
     "ros2_rosbag2",
     "ros2_rosidl",
-    "ros2_rosidl_typesupport",
-)
-
-# Temporary patch to make rclpy compatible with our LLVM toolchain.
-# Can be removed when https://github.com/bazelbuild/bazel-central-registry/pull/9746
-# is merged and the new version is available in the BCR.
-single_version_override(
-    module_name = "com_github_mvukov_rules_ros2",
-    patch_strip = 1,
-    patches = ["//third_party/rules_ros2:rules_ros2_atomic.patch"],
 )
 
 single_version_override(
