@@ -69,7 +69,7 @@ absl::StatusOr<pxr::UsdStageRefPtr> LoadStageFromString(
 // Returns the root prim that should be used to start parsing the scene tree.
 // If the stage specifies a `defaultPrim`, then that prim will be used.
 // Otherwise, we fallback to using the stage's pseudo-root.
-absl::StatusOr<pxr::UsdPrim> GetRootPrim(const pxr::UsdStageRefPtr stage);
+absl::StatusOr<pxr::UsdPrim> GetRootPrim(const pxr::UsdStageRefPtr& stage);
 
 // Converts a USD vector to an eigenmath vector
 eigenmath::Vector3d ConvertVector(const pxr::GfVec3d& vec);
@@ -186,12 +186,12 @@ std::string GetErrorString(const pxr::TfErrorMark& error_mark);
 // Dumps the contents of the stage to a string, for debugging.
 // Includes a description of all primitives and their properties,
 // recursively.
-std::string DumpStage(pxr::UsdStageRefPtr stage);
+std::string DumpStage(const pxr::UsdStageRefPtr& stage);
 
 // Dumps the contents of the primitive to a string, for debugging.
 // Includes a description of this primitive's properties and
 // child primitives, recursively.
-std::string DumpPrimitiveRecursive(pxr::UsdPrim prim);
+std::string DumpPrimitiveRecursive(const pxr::UsdPrim& prim);
 
 };  // namespace intrinsic::usd
 
