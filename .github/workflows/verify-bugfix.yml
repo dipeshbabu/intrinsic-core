@@ -23,6 +23,7 @@ jobs:
           fetch-depth: 0
           lfs: true
       - name: Reclaim space on disposable hosted runner
+        # A prior checkout without LFS can leave unchanged files as pointers.
         run: |
           test "$RUNNER_ENVIRONMENT" = github-hosted
           sudo rm -rf -- /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
@@ -32,6 +33,14 @@ jobs:
         uses: bazel-contrib/setup-bazel@0.14.0
         with:
           bazelisk-cache: true
+      - name: Materialize and verify pose-fix LFS assets
+        run: |
+          git lfs pull
+          if git lfs ls-files --long | grep -E '^[0-9a-f]{64} - '; then
+            echo 'LFS pointer files remain in the checkout.'
+            exit 1
+          fi
+          test "$(head -c 4 intrinsic_control/intrinsic/models/assets/standard_tooling/robotiq_hande/io_coupler_visual.glb)" = glTF
       - name: Enable isolated test networking
         run: |
           unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
@@ -74,12 +83,21 @@ jobs:
           fetch-depth: 0
           lfs: true
       - name: Verify reflection fix and reproduce original failure
+        # Materialize unchanged assets after switching source commits too.
         run: |
           bash "$RUNNER_TEMP/validate-functional-regression.sh" \
             9171c96a89b4ee3db41fc6fd339cc085c7e1d761 rotation3.py \
             'FAIL: test_from_matrix.*rejects_reflection' \
             //intrinsic_sdk/intrinsic/math/python:rotation3_test \
             //intrinsic_sdk/intrinsic/math/python:pose3_test
+      - name: Materialize and verify reflection-fix LFS assets
+        run: |
+          git lfs pull
+          if git lfs ls-files --long | grep -E '^[0-9a-f]{64} - '; then
+            echo 'LFS pointer files remain in the checkout.'
+            exit 1
+          fi
+          test "$(head -c 4 intrinsic_control/intrinsic/models/assets/standard_tooling/robotiq_hande/io_coupler_visual.glb)" = glTF
       - name: Build all targets for reflection fix
         run: |
           unset -v ANDROID_HOME ANDROID_SDK_HOME ANDROID_SDK_ROOT
