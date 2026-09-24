@@ -67,6 +67,10 @@ message Metadata {
   // document.
   bool is_incomplete = 14;
 
+  // A random UUID generated when a solution deployment is created and preserved
+  // across updates until the deployment is stopped/deleted.
+  string solution_deployment_id = 17;
+
   reserved "docs", "environment", "origin", "owner_org", "parent",
       "thumbnail_uri", "version";
   reserved 5, 6, 8, 9, 10, 11, 12, 16;

@@ -64,6 +64,10 @@ inline std::optional<std::string> ServerAddressOrNulloptIfEmpty(
   return std::string(server_address);
 }
 
+absl::string_view CameraServiceInterfaceUri();
+
+absl::string_view CameraConfigServiceInterfaceUri();
+
 absl::StatusOr<intrinsic_proto::perception::v1::CameraConfig>
 UnpackCameraConfig(const google::protobuf::Any& any);
 

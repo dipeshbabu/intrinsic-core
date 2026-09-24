@@ -97,7 +97,7 @@ absl::StatusOr<Pose3d> ComputeLinkParentTThisPose(
 }  // namespace
 
 absl::StatusOr<intrinsic_proto::scene_object::v1::SceneObject>
-SceneObjectFromUsdStage(pxr::UsdStageRefPtr stage,
+SceneObjectFromUsdStage(const pxr::UsdStageRefPtr& stage,
                         GeometrySerializer& geometry_serializer) {
   INTR_RETURN_IF_ERROR(internal::PreprocessUsdStage(stage))
       << "Failed to preprocess the USD stage";
@@ -301,7 +301,7 @@ absl::flat_hash_set<std::string> SupportedUsdExtensions() {
 
 namespace internal {
 
-absl::Status PreprocessUsdStage(pxr::UsdStageRefPtr stage) {
+absl::Status PreprocessUsdStage(const pxr::UsdStageRefPtr& stage) {
   // If the Stage contains no links (UsdPhysicsRigidBody), then we add one at
   // the top level so that we can still parse all the geometry in the file as if
   // it is part of link.

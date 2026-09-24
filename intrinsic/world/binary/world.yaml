@@ -97,15 +97,18 @@ metadata:
   labels:
     app: world
 spec:
-  clusterIP: None
+  type: ClusterIP
   ports:
     - port: 8080
       name: grpc-world
     - port: 9101
       name: http-metrics
+    # Backwards compatibility for executive.
+    - port: 8082
+      name: grpc-conductor-legacy
+      targetPort: 8082
   selector:
     app: world
-  type: ClusterIP
 ---
 apiVersion: v1
 kind: Service
@@ -116,8 +119,13 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-    - port: 8082
+    - port: 8080
       name: grpc-conductor
+      targetPort: 8082
+    # Backwards compatibility for executive.
+    - port: 8082
+      name: grpc-conductor-legacy
+      targetPort: 8082
   selector:
     app: world
 ---
@@ -154,7 +162,7 @@ spec:
         - destination:
             host: conductor
             port:
-              number: 8082
+              number: 8080
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
