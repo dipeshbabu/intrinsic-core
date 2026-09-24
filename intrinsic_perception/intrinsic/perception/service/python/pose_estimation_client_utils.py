@@ -46,7 +46,7 @@ _GRPC_OPTIONS = [
     ("grpc.max_message_length", 1000 * 1024 * 1024),
 ]
 _LOGGING_CONTEXT_METADATA_KEY = "x-intrinsic-logging-context"
-_DEFAULT_TIMEOUT_IN_SECONDS = 300
+_DEFAULT_TIMEOUT_IN_SECONDS = 900
 _INGRESS_ADDRESS = "istio-ingressgateway.app-ingress.svc.cluster.local:80"
 
 

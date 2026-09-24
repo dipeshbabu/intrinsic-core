@@ -31,7 +31,7 @@ namespace usd {
 // written to storage using the given `geometry_serializer`. This calls
 // `PreprocessUsdStage` internally, so it may modify the UsdStage.
 absl::StatusOr<intrinsic_proto::scene_object::v1::SceneObject>
-SceneObjectFromUsdStage(pxr::UsdStageRefPtr stage,
+SceneObjectFromUsdStage(const pxr::UsdStageRefPtr& stage,
                         GeometrySerializer& geometry_serializer);
 
 // Converts a USD file stored in memory to an Intrinsic Scene Object. The
@@ -79,7 +79,7 @@ namespace internal {
 //
 // This is called internally by the `SceneObjectFrom...` functions and does not
 // need to be called manually.
-absl::Status PreprocessUsdStage(pxr::UsdStageRefPtr stage);
+absl::Status PreprocessUsdStage(const pxr::UsdStageRefPtr& stage);
 
 }  // namespace internal
 

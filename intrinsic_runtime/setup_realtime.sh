@@ -89,15 +89,23 @@ function validate_env() {
 }
 
 function run_silent() {
+    if [[ "${EUID}" -ne 0 ]]; then
+        sudo -v
+    fi
+
     local log_file
     log_file=$(mktemp "${WORK_DIR}/cmd_XXXXXX.log")
 
-    if ! "$@" > "${log_file}" 2>&1; then
+    trap 'echo ""; echo "Command interrupted: $*"; echo "Logs:"; cat "${log_file}"; exit 130' INT TERM
+
+    if ! "$@" < /dev/null > "${log_file}" 2>&1; then
+        trap - INT TERM
         echo "Command failed: $*"
         echo "Logs:"
         cat "${log_file}"
         exit 1
     fi
+    trap - INT TERM
 }
 
 function install_dependencies() {

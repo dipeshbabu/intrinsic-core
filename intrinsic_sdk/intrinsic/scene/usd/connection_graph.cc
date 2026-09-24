@@ -328,10 +328,7 @@ ConnectionTree::GetToplevelLinks() const {
 }
 
 void ConnectionTree::RemoveIncompleteJoints() {
-  auto it = joints_.begin();
-  while (it != joints_.end()) {
-    absl_nonnull std::unique_ptr<JointNode>& joint = *it;
-
+  std::erase_if(joints_, [this](const std::unique_ptr<JointNode>& joint) {
     if (!joint->parent_link || !joint->child_link) {
       // Joint is incomplete.
       if (joint->parent_link) {
@@ -341,11 +338,10 @@ void ConnectionTree::RemoveIncompleteJoints() {
         joint->child_link->parent_node = nullptr;
       }
       path_to_joint_.erase(joint->GetPrimPath());
-      it = joints_.erase(it);
-    } else {
-      ++it;
+      return true;
     }
-  }
+    return false;
+  });
 }
 
 absl::StatusOr<ConnectionTree> ComputeConnectionTreeFromGraph(

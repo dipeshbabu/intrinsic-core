@@ -43,7 +43,6 @@
 #include "intrinsic/scene/usd/connection_graph.h"
 #include "intrinsic/scene/usd/entity_from_usd.h"
 #include "intrinsic/scene/usd/utils.h"
-#include "intrinsic/util/file_helpers.h"
 #include "intrinsic/util/status/ret_check.h"
 #include "intrinsic/util/status/status_macros.h"
 #include "ortools/base/helpers.h"
@@ -97,7 +96,7 @@ absl::StatusOr<Pose3d> ComputeLinkParentTThisPose(
 }  // namespace
 
 absl::StatusOr<intrinsic_proto::scene_object::v1::SceneObject>
-SceneObjectFromUsdStage(pxr::UsdStageRefPtr stage,
+SceneObjectFromUsdStage(const pxr::UsdStageRefPtr& stage,
                         GeometrySerializer& geometry_serializer) {
   INTR_RETURN_IF_ERROR(internal::PreprocessUsdStage(stage))
       << "Failed to preprocess the USD stage";
@@ -267,10 +266,11 @@ SceneObjectFromUsdFileData(absl::string_view file_name,
   // `TempPath` creates the directory but does not remove it on destruction, so
   // the cleanup is done here.
   absl::Cleanup temp_dir_cleanup = [&temp_dir]() {
-    if (absl::Status status = RecursivelyDelete(temp_dir.path());
-        !status.ok()) {
+    std::error_code ec;
+    fs::remove_all(temp_dir.path(), ec);
+    if (ec) {
       LOG(WARNING) << "Failed to delete the temporary directory "
-                   << temp_dir.path() << ": " << status;
+                   << temp_dir.path() << ": " << ec.message();
     }
   };
   const std::string temp_file =
@@ -301,7 +301,7 @@ absl::flat_hash_set<std::string> SupportedUsdExtensions() {
 
 namespace internal {
 
-absl::Status PreprocessUsdStage(pxr::UsdStageRefPtr stage) {
+absl::Status PreprocessUsdStage(const pxr::UsdStageRefPtr& stage) {
   // If the Stage contains no links (UsdPhysicsRigidBody), then we add one at
   // the top level so that we can still parse all the geometry in the file as if
   // it is part of link.
