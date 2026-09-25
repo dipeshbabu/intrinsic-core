@@ -20,7 +20,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"time"
 
@@ -70,8 +69,8 @@ import (
 	casgrpcpb "intrinsic/storage/content_addressable_storage/proto/cas_service_go_proto"
 )
 
-func readLocalSolution(runfilesFS fs.FS, path string) (*assetpb.LocalSolution, error) {
-	b, err := fs.ReadFile(runfilesFS, path)
+func readLocalSolution(path string) (*assetpb.LocalSolution, error) {
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read solution assets proto %q: %w", path, err)
 	}
@@ -229,13 +228,13 @@ $ bazel run //intrinsic/config:empty_application --\
 
 			log.InfoContextf(ctx, "Deploying to cluster")
 
-			assetsRlocationpath := args[0]
-			span.AddAttributes(trace.StringAttribute("app_path", assetsRlocationpath))
+			assetsPath := args[0]
+			span.AddAttributes(trace.StringAttribute("app_path", assetsPath))
 			runfilesFS, err := pathresolver.ResolveRunfilesFsRoot()
 			if err != nil {
 				return fmt.Errorf("failed to resolve runfiles FS root: %w", err)
 			}
-			assets, err := readLocalSolution(runfilesFS, assetsRlocationpath)
+			assets, err := readLocalSolution(assetsPath)
 			if err != nil {
 				return err
 			}

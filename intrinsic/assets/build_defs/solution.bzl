@@ -139,7 +139,7 @@ def _intrinsic_solution_impl(ctx):
     ctx.actions.write(
         out_executable,
         content = """{header}
-exec "$(rlocation "{target}")" "{app}" "$@"
+exec "$(rlocation "{target}")" "$(rlocation "{app}")" "$@"
 """.format(
             header = WRAPPER_HEADER,
             target = to_rlocation_path(ctx, ctx.executable._solution_update),

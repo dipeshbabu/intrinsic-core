@@ -79,7 +79,6 @@ message LocalSolution {
   // Solution metadata.
   string display_name = 5;
   string build_target = 6;
-  string version = 8;
 
   // An asset that was compiled locally or is a reference to an item in the
   // asset catalog.
@@ -101,7 +100,7 @@ message LocalSolution {
   // The default mode in which to start this solution.
   intrinsic_proto.config.OperationMode default_operation_mode = 7;
 
-  reserved 3, 4;
-  reserved "product", "process";
+  reserved 3, 4, 8;
+  reserved "product", "process", "version";
 }
 
