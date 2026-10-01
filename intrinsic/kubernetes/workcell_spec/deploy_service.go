@@ -125,7 +125,7 @@ type DeployService struct {
 	runner                        *operations.Runner
 
 	defaultWorkcellSpec func(context.Context) (*transferpb.WorkcellSpec, error)
-	clusterName         string
+	clusterInfo         transfersvc.ClusterInfo
 	clusterParams       render.ClusterParams
 	initDataFiles       render.InitDataFilesParams
 }
@@ -153,7 +153,7 @@ type Options struct {
 	// operation of the deploy service.  Not all values will restart the
 	// workcell cluster service.
 	DefaultWorkcellSpec func(context.Context) (*transferpb.WorkcellSpec, error)
-	ClusterName         string
+	ClusterInfo         transfersvc.ClusterInfo
 	render.ClusterParams
 	render.InitDataFilesParams
 }
@@ -170,7 +170,7 @@ func New(opts Options) *DeployService {
 		resourceTypeRuntimeClient:     opts.ResourceTypeRuntimeClient,
 		skillRuntimeClient:            opts.SkillRuntimeClient,
 		transferService:               opts.TransferService,
-		clusterName:                   opts.ClusterName,
+		clusterInfo:                   opts.ClusterInfo,
 		svsc:                          opts.SolutionVersionServiceClient,
 		loggerClient:                  opts.LoggerClient,
 		defaultWorkcellSpec:           opts.DefaultWorkcellSpec,
@@ -199,10 +199,35 @@ func (s *DeployService) StartIdleWorkcellSpec(ctx context.Context) error {
 		return nil
 	}
 
-	if err := s.stopSolution(ctx); err != nil {
-		return fmt.Errorf("stopSolution failed to set an idle state for the cluster: %w", err)
+	if err := s.applyIdleWorkcellSpec(ctx); err != nil {
+		return fmt.Errorf("applyIdleWorkcellSpec failed to set an idle state for the cluster: %w", err)
 	}
 
+	return nil
+}
+
+func (s *DeployService) applyIdleWorkcellSpec(ctx context.Context) error {
+	defaultWorkcellSpec, err := s.defaultWorkcellSpec(ctx)
+	if err != nil {
+		log.ErrorContextf(ctx, "s.defaultWorkcellSpec(ctx) failed: %v", err)
+		return fmt.Errorf("failed to get default workcell spec: %w", err)
+	}
+	ws, err := render.WorkcellSpecFromApplication(&render.ApplicationParams{
+		DefaultWorkcellSpec: defaultWorkcellSpec,
+		ClusterParams:       s.clusterParams,
+		InitDataFilesParams: s.initDataFiles,
+		Simulated:           !s.clusterInfo.CanDoPhysicalExecution, // Unvalidated heuristic for most likely next operation mode.
+	})
+	if err != nil {
+		log.ErrorContextf(ctx, "WorkcellSpecFromApplication(...) failed: %v", err)
+		return fmt.Errorf("failed to render the solution charts: %w", err)
+	}
+
+	log.InfoContext(ctx, "Calling the transfer service to deploy intrinsic-app-chart, resources, and skills charts")
+	if err := s.transferService.ApplyWorkcellSpec(ctx, ws); err != nil {
+		log.ErrorContextf(ctx, "s.transferService.ApplyWorkcellSpec(ws=%v) failed: %v", ws, err)
+		return fmt.Errorf("failed to apply the workcell spec: %w", err)
+	}
 	return nil
 }
 
@@ -218,7 +243,20 @@ func (s *DeployService) updateApplicationInHSS(ctx context.Context, app *apb.App
 	return nil
 }
 
-func checkOperationMode(app *apb.Application, cluster *cpb.Cluster) error {
+func checkOperationMode(app *apb.Application, clusterInfo transfersvc.ClusterInfo) error {
+	switch app.GetOperationMode() {
+	case opmodepb.OperationMode_REAL_HARDWARE:
+		if !clusterInfo.CanDoPhysicalExecution {
+			return fmt.Errorf("cluster %s cannot run a real solution", clusterInfo.Name)
+		}
+	case opmodepb.OperationMode_SIMULATION:
+		if !clusterInfo.CanDoSim {
+			return fmt.Errorf("%v cannot run a simulation", clusterInfo.Name)
+		}
+	default:
+		return fmt.Errorf("cannot deploy an app with operation mode %v", app.GetOperationMode())
+	}
+
 	return nil
 }
 
@@ -368,7 +406,7 @@ func (s *DeployService) updateAppMetadataInFirestore(ctx context.Context, cluste
 		log.ErrorContextf(ctx, "updateAppMetadataInFirestore: adding identity information from incoming context to outgoing context failed: %v", err)
 		return clientcontext.ErrGRPC(err)
 	}
-	res, err := s.cloudClusterClient.GetCluster(ctx, &idbcspb.GetClusterRequest{Name: s.clusterName})
+	res, err := s.cloudClusterClient.GetCluster(ctx, &idbcspb.GetClusterRequest{Name: s.clusterInfo.Name})
 	if c := status.Code(err); c == codes.NotFound {
 		// Very improbable case that the cluster is not available in Firestore. Then use the cluster
 		// proto from HSS "as is".
@@ -420,11 +458,11 @@ func (s *DeployService) DeployApplication(ctx context.Context, req *deploypb.Dep
 
 	span.AddAttributes(
 		trace.StringAttribute("name", req.GetApplication().GetMetadata().GetDisplayName()),
-		trace.StringAttribute("cluster", s.clusterName),
+		trace.StringAttribute("cluster", s.clusterInfo.Name),
 	)
 
 	if branchName := req.GetApplication().GetMetadata().GetName(); branchName != "" {
-		op, err := s.scheduleVersionedSolution(ctx, branchName, req.GetApplication().GetOperationMode())
+		op, err := s.scheduleVersionedSolution(ctx, branchName, req.GetApplication().GetOperationMode(), true /* allowRunning */, solutiondeploymentpb.SolutionDeploymentView_SOLUTION_DEPLOYMENT_VIEW_UNSPECIFIED)
 		if err != nil {
 			return nil, err
 		}
@@ -490,15 +528,16 @@ func (s *DeployService) deployApplication(
 
 	span.AddAttributes(
 		trace.StringAttribute("name", app.GetMetadata().GetDisplayName()),
-		trace.StringAttribute("cluster", s.clusterName))
+		trace.StringAttribute("cluster", s.clusterInfo.Name))
+
+	if err := checkOperationMode(app, s.clusterInfo); err != nil {
+		log.ErrorContextf(ctx, "checkOperationMode(%v, %v) failed with: %v", app, s.clusterInfo, err)
+		return nil, status.Errorf(codes.FailedPrecondition, "solution %q: %v", app.GetMetadata().GetDisplayName(), err)
+	}
 
 	cluster, _, err := s.getClusterNoApp(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get cluster: %v", err)
-	}
-	if err := checkOperationMode(app, cluster); err != nil {
-		log.ErrorContextf(ctx, "checkOperationMode(%v, %v) failed with: %v", app, cluster, err)
-		return nil, status.Errorf(codes.FailedPrecondition, "solution %q: %v", app.GetMetadata().GetDisplayName(), err)
 	}
 
 	log.InfoContext(ctx, "Gathering asset data from asset and resource catalogs")
@@ -633,6 +672,7 @@ func (s *DeployService) deployApplication(
 	}
 	return &solutiondeploymentpb.SolutionDeployment{
 		Name:          app.GetMetadata().GetSolutionDeploymentId(),
+		DisplayName:   app.GetMetadata().GetDisplayName(),
 		SolutionId:    app.GetMetadata().GetName(),
 		OperationMode: app.GetOperationMode(),
 		Solution:      solution,
@@ -670,26 +710,9 @@ func (s *DeployService) stopSolution(ctx context.Context) error {
 		return fmt.Errorf("failed to cluster the solution state: %w", err)
 	}
 
-	defaultWorkcellSpec, err := s.defaultWorkcellSpec(ctx)
-	if err != nil {
-		log.ErrorContextf(ctx, "s.defaultWorkcellSpec(ctx) failed: %v", err)
-		return status.Errorf(codes.Internal, "failed to get default workcell spec: %v", err)
-	}
-	ws, err := render.WorkcellSpecFromApplication(&render.ApplicationParams{
-		DefaultWorkcellSpec: defaultWorkcellSpec,
-		ClusterParams:       s.clusterParams,
-		InitDataFilesParams: s.initDataFiles,
-		Simulated:           !cluster.GetCanDoReal(), // Unvalidated heuristic for most likely next operation mode.
-	})
-	if err != nil {
-		log.ErrorContextf(ctx, "WorkcellSpecFromApplication(...) failed: %v", err)
-		return status.Errorf(codes.Internal, "render workcell spec: %v", err)
-	}
-
-	log.InfoContext(ctx, "Calling the transfer service to deploy intrinsic-app-chart, resources, and skills charts")
-	if err := s.transferService.ApplyWorkcellSpec(ctx, ws); err != nil {
-		log.ErrorContextf(ctx, "s.transferService.ApplyWorkcellSpec(ws=%v) failed: %v", ws, err)
-		return status.Errorf(codes.Internal, "failed to create and apply workcell spec: %v", err)
+	if err := s.applyIdleWorkcellSpec(ctx); err != nil {
+		log.ErrorContextf(ctx, "s.applyIdleWorkcellSpec(ctx) failed: %v", err)
+		return status.Errorf(codes.Internal, "failed to move charts back to an idle state: %v", err)
 	}
 
 	if err := s.resourceTypeRuntimeClient.Clear(ctx); err != nil {
@@ -910,14 +933,19 @@ func normalizeApp(ctx context.Context, app *apb.Application, rts map[string]*rtr
 func (s *DeployService) CreateSolutionDeploymentFromVersionedSolution(ctx context.Context, req *solutiondeploymentpb.CreateSolutionDeploymentFromVersionedSolutionRequest) (*lropb.Operation, error) {
 	ctx, span := trace.StartSpan(ctx, "DeployService.CreateSolutionDeploymentFromVersionedSolution")
 	defer span.End()
-	op, err := s.scheduleVersionedSolution(ctx, req.GetSolutionId(), req.GetOperationMode())
+	if view, err := viewOrDefault(req.GetView(), solutiondeploymentpb.SolutionDeploymentView_SOLUTION_DEPLOYMENT_VIEW_BASIC); err != nil {
+		return nil, err
+	} else {
+		req.View = view
+	}
+	op, err := s.scheduleVersionedSolution(ctx, req.GetSolutionId(), req.GetOperationMode(), false /* allowRunning */, req.GetView())
 	if err != nil {
 		return nil, err
 	}
 	return op.Proto(), nil
 }
 
-func (s *DeployService) scheduleVersionedSolution(ctx context.Context, solutionID string, operationMode opmodepb.OperationMode) (*operations.Operation, error) {
+func (s *DeployService) scheduleVersionedSolution(ctx context.Context, solutionID string, operationMode opmodepb.OperationMode, allowRunning bool, view solutiondeploymentpb.SolutionDeploymentView) (*operations.Operation, error) {
 	op := operations.New(&lropb.Operation{
 		Name: path.Join(deploymentPrefix, "create-from-versioned-solution", newOperationName()),
 	})
@@ -948,7 +976,7 @@ func (s *DeployService) scheduleVersionedSolution(ctx context.Context, solutionI
 			log.ErrorContextf(ctx, "CreateSolutionDeploymentFromVersionedSolution: failed to get branch %q: %v", solutionID, err)
 			return nil, err
 		}
-		if branch.GetExecStatus().GetOperationMode() != opmodepb.OperationMode_OPERATION_MODE_UNSPECIFIED {
+		if !allowRunning && branch.GetExecStatus().GetOperationMode() != opmodepb.OperationMode_OPERATION_MODE_UNSPECIFIED {
 			log.ErrorContextf(ctx, "CreateSolutionDeploymentFromVersionedSolution: solution %q is currently running", solutionID)
 			return nil, status.Errorf(codes.FailedPrecondition, "solution %q is currently running", solutionID)
 		}
@@ -986,7 +1014,7 @@ func (s *DeployService) scheduleVersionedSolution(ctx context.Context, solutionI
 		if err != nil {
 			return nil, err
 		}
-		return basicSolutionDeploymentView(solutionDeployment), nil
+		return asView(solutionDeployment, view), nil
 	}); err == operations.ErrQueueFull {
 		return nil, status.Error(codes.ResourceExhausted, err.Error())
 	} else if err != nil {
@@ -1029,6 +1057,12 @@ func (s *DeployService) scheduleDeleteSolutionDeployment(ctx context.Context) (*
 func (s *DeployService) UpdateSolutionDeployment(ctx context.Context, req *solutiondeploymentpb.UpdateSolutionDeploymentRequest) (*lropb.Operation, error) {
 	ctx, span := trace.StartSpan(ctx, "DeployService.UpdateSolutionDeployment")
 	defer span.End()
+
+	if view, err := viewOrDefault(req.GetView(), solutiondeploymentpb.SolutionDeploymentView_SOLUTION_DEPLOYMENT_VIEW_BASIC); err != nil {
+		return nil, err
+	} else {
+		req.View = view
+	}
 
 	op := operations.New(&lropb.Operation{
 		Name: path.Join(deploymentPrefix, "update", newOperationName()),
@@ -1082,6 +1116,7 @@ func (s *DeployService) UpdateSolutionDeployment(ctx context.Context, req *solut
 			app.Metadata.Name = solutionID
 		}
 		app.Metadata.SolutionDeploymentId = solutionDeploymentID
+		app.Metadata.DisplayName = req.GetSolutionDeployment().GetDisplayName()
 		app.OperationMode = req.GetSolutionDeployment().GetOperationMode()
 
 		var validateDependencies deployValidator = func(ctx context.Context, app *apb.Application, rts map[string]*rtrpb.ResourceTypeRuntime) error {
@@ -1108,7 +1143,7 @@ func (s *DeployService) UpdateSolutionDeployment(ctx context.Context, req *solut
 			return nil, err
 		}
 
-		return basicSolutionDeploymentView(solutionDeployment), nil
+		return asView(solutionDeployment, req.GetView()), nil
 	}); err == operations.ErrQueueFull {
 		log.ErrorContextf(ctx, "queue full: %v", err)
 		return nil, status.Error(codes.ResourceExhausted, err.Error())
@@ -1123,6 +1158,12 @@ func (s *DeployService) UpdateSolutionDeployment(ctx context.Context, req *solut
 func (s *DeployService) GetSolutionDeployment(ctx context.Context, req *solutiondeploymentpb.GetSolutionDeploymentRequest) (*solutiondeploymentpb.SolutionDeployment, error) {
 	ctx, span := trace.StartSpan(ctx, "DeployService.GetSolutionDeployment")
 	defer span.End()
+
+	if view, err := viewOrDefault(req.GetView(), solutiondeploymentpb.SolutionDeploymentView_SOLUTION_DEPLOYMENT_VIEW_FULL); err != nil {
+		return nil, err
+	} else {
+		req.View = view
+	}
 
 	resp, err := s.applicationClient.GetCurrentApplication(ctx, &aspb.GetCurrentApplicationRequest{})
 	if status.Code(err) == codes.NotFound {
@@ -1147,12 +1188,14 @@ func (s *DeployService) GetSolutionDeployment(ctx context.Context, req *solution
 	}
 
 	log.InfoContext(ctx, "Returning solution deployment")
-	return &solutiondeploymentpb.SolutionDeployment{
+	sd := &solutiondeploymentpb.SolutionDeployment{
 		Name:          app.GetMetadata().GetSolutionDeploymentId(),
+		DisplayName:   app.GetMetadata().GetDisplayName(),
 		SolutionId:    app.GetMetadata().GetName(),
 		OperationMode: app.GetOperationMode(),
 		Solution:      solution,
-	}, nil
+	}
+	return asView(sd, req.GetView()), nil
 }
 
 func asApplication(sol *solutionpb.Solution) (*apb.Application, error) {
@@ -1224,12 +1267,31 @@ func asSolution(app *apb.Application, rts map[string]*rtrpb.ResourceTypeRuntime)
 	}, nil
 }
 
-func basicSolutionDeploymentView(sd *solutiondeploymentpb.SolutionDeployment) *solutiondeploymentpb.SolutionDeployment {
-	return &solutiondeploymentpb.SolutionDeployment{
-		Name:          sd.GetName(),
-		Solution:      basicSolutionView(sd.GetSolution()),
-		SolutionId:    sd.GetSolutionId(),
-		OperationMode: sd.GetOperationMode(),
+func viewOrDefault(view solutiondeploymentpb.SolutionDeploymentView, defaultView solutiondeploymentpb.SolutionDeploymentView) (solutiondeploymentpb.SolutionDeploymentView, error) {
+	switch view {
+	case solutiondeploymentpb.SolutionDeploymentView_SOLUTION_DEPLOYMENT_VIEW_UNSPECIFIED:
+		return defaultView, nil
+	case solutiondeploymentpb.SolutionDeploymentView_SOLUTION_DEPLOYMENT_VIEW_BASIC,
+		solutiondeploymentpb.SolutionDeploymentView_SOLUTION_DEPLOYMENT_VIEW_FULL:
+		return view, nil
+	default:
+		return solutiondeploymentpb.SolutionDeploymentView_SOLUTION_DEPLOYMENT_VIEW_UNSPECIFIED, status.Errorf(codes.Unimplemented, "unsupported view %q", view)
+	}
+}
+
+// asView filters the SolutionDeployment based on the requested view.
+func asView(sd *solutiondeploymentpb.SolutionDeployment, view solutiondeploymentpb.SolutionDeploymentView) *solutiondeploymentpb.SolutionDeployment {
+	switch view {
+	case solutiondeploymentpb.SolutionDeploymentView_SOLUTION_DEPLOYMENT_VIEW_BASIC:
+		return &solutiondeploymentpb.SolutionDeployment{
+			Name:          sd.GetName(),
+			DisplayName:   sd.GetDisplayName(),
+			Solution:      basicSolutionView(sd.GetSolution()),
+			SolutionId:    sd.GetSolutionId(),
+			OperationMode: sd.GetOperationMode(),
+		}
+	default:
+		return sd // Validation and defaults are handled on entry to the RPC.
 	}
 }
 
