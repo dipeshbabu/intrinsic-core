@@ -1,0 +1,28 @@
+name: Validate updated math PRs
+'on':
+  push:
+    branches:
+    - ci/review-updates-20261001
+permissions:
+  contents: read
+jobs:
+  math:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - pr: 2
+          commit: e79905f9914dfa02bb7382c02657fac13af4d7ba
+        - pr: 7
+          commit: 54b418a8d61337969efb3c3410bb004dc41d2b2e
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ matrix.commit }}
+        persist-credentials: false
+    - uses: bazel-contrib/setup-bazel@0.14.0
+      with:
+        bazelisk-cache: true
+    - run: bazel test //intrinsic_sdk/intrinsic/math/python:all --spawn_strategy=processwrapper-sandbox --test_output=errors
