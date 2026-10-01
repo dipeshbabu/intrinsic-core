@@ -14,9 +14,9 @@ jobs:
       matrix:
         include:
         - pr: 2
-          commit: e79905f9914dfa02bb7382c02657fac13af4d7ba
+          commit: 63879198786bd7ac55d07a38fdd60e8a0026ff4f
         - pr: 7
-          commit: 54b418a8d61337969efb3c3410bb004dc41d2b2e
+          commit: 434ef2a05fbe5448c05812d2b21008718ace570f
     steps:
     - uses: actions/checkout@v4
       with:
